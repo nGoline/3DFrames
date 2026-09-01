@@ -7,7 +7,7 @@
  */
 import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
-import { buildProfile } from '../src/core/profiles.ts'
+import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
 import { PROFILE_PRESETS } from '../src/core/profiles.ts'
@@ -247,6 +247,66 @@ console.log('')
       r.warnings.length === 0 && bad.length === 0,
       [...r.warnings, ...bad.map((p) => p.part.name)].join('; '))
     console.log(`         ${bed.label}: ${r.parts.length} parts over ${layout.plates} plate(s)`)
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Joints must stay inside the moulding.
+//
+// A key set perpendicular to a mitre travels diagonally across the rail, so it
+// drifts toward the outer edge as it reaches into each segment. Get that wrong
+// and the keys stand proud of the frame while their pockets open holes in its
+// sides. Assembling the kit and subtracting the frame it was cut from catches
+// both at once: the remainder must be nothing.
+// ---------------------------------------------------------------------------
+{
+  const nominal = (cfg: FrameConfig) => {
+    const params = normaliseParams(cfg.profile)
+    const profile = buildProfile(cfg.profilePreset, params, cfg.quality)
+    const path = buildOpeningPath(cfg.shape, cfg.interiorWidth, cfg.interiorHeight, cfg.quality)
+    const frames = miterFrames(path.points)
+    const { at } = pathLengths(path.points)
+    const raw = sweep({ points: path.points, frames, arc: at, profile, faceStart: 3, displacer: null, closed: true })
+    return Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: raw.vertProperties, triVerts: raw.triVerts }))
+  }
+
+  const cases: [string, Partial<FrameConfig>][] = [
+    ['rectangle, classic', {}],
+    ['rectangle, gallery', { profilePreset: 'gallery' }],
+    ['rectangle, narrow moulding', { profile: { width: 9, depth: 8, rabbetWidth: 3, rabbetDepth: 3, relief: 0.75 } }],
+    ['hexagon', { shape: 'hexagon' }],
+    ['octagon, scoop', { shape: 'octagon', profilePreset: 'scoop' }],
+    ['circle', { shape: 'circle', interiorHeight: 203.2 }],
+    ['poster, split many ways', {
+      interiorWidth: 610, interiorHeight: 914,
+      plate: { printer: 'bambu-a1-mini', x: 180, y: 180, z: 180, smartOrientation: true },
+    }],
+  ]
+
+  for (const [label, patch] of cases) {
+    // No surface relief: it resamples with the path, so the nominal solid would
+    // not be bit-for-bit comparable.
+    const cfg: FrameConfig = { ...DEFAULT_CONFIG, face: { ...DEFAULT_CONFIG.face, pattern: 'none' }, ...patch }
+    const r = await buildFrame(cfg, deps)
+    const kit = r.parts.filter((p) => p.kind === 'frame' || p.kind === 'snapkit')
+    const assembled = kit
+      .map((part) => {
+        const { vertices, indices } = weldVertices(part.positions)
+        return Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: vertices, triVerts: indices }))
+      })
+      .reduce((a, b) => a.add(b))
+
+    const frame = nominal(cfg)
+    const outside = assembled.subtract(frame).volume()
+    const ratio = outside / frame.volume()
+    check(`${label}: nothing sits outside the moulding`, ratio < 1e-4,
+      `${outside.toFixed(1)} mm³ outside (${(ratio * 100).toFixed(2)}%)`)
+
+    // And the pockets must not have eaten more than the joint clearances.
+    const missing = (frame.volume() - assembled.volume()) / frame.volume()
+    check(`${label}: the kit still reassembles into the frame`, missing < 0.02,
+      `${(missing * 100).toFixed(2)}% of the frame is missing`)
   }
 }
 

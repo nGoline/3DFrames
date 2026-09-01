@@ -144,19 +144,21 @@ export function largestInscribedRect(
         const left = stack.length ? stack[stack.length - 1] + 1 : 0
         const area = height * (c - left)
         if (area > best.area) {
+          // Only cell *centres* were tested, so the guaranteed-solid rectangle
+          // runs centre to centre — half a cell in from each boundary.
           best = {
             area,
-            x0: minX + left * dx,
-            x1: minX + c * dx,
-            y0: minY + (r - height + 1) * dy,
-            y1: minY + (r + 1) * dy,
+            x0: minX + (left + 0.5) * dx,
+            x1: minX + (c - 0.5) * dx,
+            y0: minY + (r - height + 1.5) * dy,
+            y1: minY + (r + 0.5) * dy,
           }
         }
       }
       stack.push(c)
     }
   }
-  return best.area > 0 ? best : null
+  return best.area > 0 && best.x1 > best.x0 && best.y1 > best.y0 ? best : null
 }
 
 export function pointInPolygon(x: number, y: number, poly: Vec2[]): boolean {

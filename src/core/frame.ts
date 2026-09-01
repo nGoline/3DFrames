@@ -101,8 +101,23 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
 
   // ---- Snap kit -----------------------------------------------------------
   const keys: RawMesh[] = []
+  // How far a key may reach from each seam: it has to stop well short of the
+  // seam at the other end of the shortest neighbouring segment.
+  const reachAt = (index: number): number => {
+    const seams = plan.seams
+    if (seams.length < 2) return Infinity
+    const k = seams.indexOf(index)
+    const gap = (from: number, to: number) => {
+      const d = at[to] - at[from]
+      return d > 0 ? d : d + total
+    }
+    const next = gap(index, seams[(k + 1) % seams.length])
+    const prev = gap(seams[(k - 1 + seams.length) % seams.length], index)
+    return 0.42 * Math.min(next, prev)
+  }
+
   for (const seam of plan.seams) {
-    const joint = buildJoint(path.points[seam], frames[seam], profile, config.joint)
+    const joint = buildJoint(path.points[seam], frames[seam], profile, config.joint, reachAt(seam))
     if (!joint) {
       warnings.push('The moulding is too slender for a snap key here — the seam will need glue.')
       continue
@@ -162,11 +177,21 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
 
   return {
     parts,
-    notes,
-    warnings,
+    notes: tally(notes),
+    warnings: tally(warnings),
     outerSize,
     volumeCm3: parts.reduce((sum, p) => sum + volumeOf(p.positions), 0) / 1000,
   }
+}
+
+/**
+ * Collapse repeated messages. Per-seam problems otherwise report themselves
+ * once for every seam, which buries anything else that went wrong.
+ */
+function tally(messages: string[]): string[] {
+  const counts = new Map<string, number>()
+  for (const message of messages) counts.set(message, (counts.get(message) ?? 0) + 1)
+  return [...counts].map(([message, n]) => (n > 1 ? `${message} (${n} seams)` : message))
 }
 
 function makePart(id: string, name: string, kind: Part['kind'], mesh: RawMesh): Part {
