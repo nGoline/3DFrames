@@ -3,29 +3,67 @@ import { MM_PER_INCH } from './units.ts'
 
 export interface PrinterPreset {
   id: string
+  /** Manufacturer, used to group the picker. Empty for the custom entry. */
+  brand: string
+  /** Model name on its own — the brand is shown by the group heading. */
   label: string
   x: number
   y: number
   z: number
 }
 
-/** Usable build volumes, trimmed slightly from the headline numbers. */
+/**
+ * Manufacturers' stated build volumes. These are the numbers on the box, which
+ * are what people recognise; slicers model the small exclusion zones around the
+ * edges themselves, so trimming here would only make frames split more than
+ * they need to.
+ */
 export const PRINTERS: PrinterPreset[] = [
-  { id: 'custom', label: 'Custom size', x: 250, y: 250, z: 250 },
-  { id: 'bambu-a1-mini', label: 'Bambu Lab A1 mini', x: 180, y: 180, z: 180 },
-  { id: 'bambu-p1-x1', label: 'Bambu Lab P1/X1', x: 256, y: 256, z: 256 },
-  { id: 'bambu-a1', label: 'Bambu Lab A1', x: 256, y: 256, z: 256 },
-  { id: 'bambu-h2d', label: 'Bambu Lab H2D', x: 325, y: 320, z: 325 },
-  { id: 'prusa-mk4', label: 'Prusa MK4 / MK3S', x: 250, y: 210, z: 220 },
-  { id: 'prusa-mini', label: 'Prusa MINI+', x: 180, y: 180, z: 180 },
-  { id: 'prusa-xl', label: 'Prusa XL', x: 360, y: 360, z: 360 },
-  { id: 'ender3', label: 'Creality Ender 3', x: 220, y: 220, z: 250 },
-  { id: 'ender5-plus', label: 'Creality Ender 5 Plus', x: 350, y: 350, z: 400 },
-  { id: 'k1-max', label: 'Creality K1 Max', x: 300, y: 300, z: 300 },
-  { id: 'voron-250', label: 'Voron 2.4 250', x: 250, y: 250, z: 250 },
-  { id: 'voron-350', label: 'Voron 2.4 350', x: 350, y: 350, z: 350 },
-  { id: 'elegoo-nep4', label: 'Elegoo Neptune 4', x: 225, y: 225, z: 265 },
+  { id: 'custom', brand: '', label: 'Custom size', x: 250, y: 250, z: 250 },
+
+  { id: 'anycubic-kobra-s1', brand: 'Anycubic', label: 'Kobra S1', x: 250, y: 250, z: 250 },
+  { id: 'anycubic-kobra-s1-max', brand: 'Anycubic', label: 'Kobra S1 Max', x: 350, y: 350, z: 350 },
+  { id: 'anycubic-kobra-3', brand: 'Anycubic', label: 'Kobra 3', x: 250, y: 250, z: 260 },
+  { id: 'anycubic-kobra-3-max', brand: 'Anycubic', label: 'Kobra 3 Max', x: 420, y: 420, z: 500 },
+  { id: 'anycubic-kobra-2-neo', brand: 'Anycubic', label: 'Kobra 2 Neo', x: 220, y: 220, z: 250 },
+  { id: 'anycubic-kobra-2-pro', brand: 'Anycubic', label: 'Kobra 2 Pro', x: 220, y: 220, z: 250 },
+  { id: 'anycubic-kobra-2-plus', brand: 'Anycubic', label: 'Kobra 2 Plus', x: 320, y: 320, z: 400 },
+  { id: 'anycubic-kobra-2-max', brand: 'Anycubic', label: 'Kobra 2 Max', x: 420, y: 420, z: 500 },
+
+  { id: 'bambu-a1-mini', brand: 'Bambu Lab', label: 'A1 mini', x: 180, y: 180, z: 180 },
+  { id: 'bambu-a1', brand: 'Bambu Lab', label: 'A1', x: 256, y: 256, z: 256 },
+  { id: 'bambu-p1-x1', brand: 'Bambu Lab', label: 'P1 / X1', x: 256, y: 256, z: 256 },
+  { id: 'bambu-h2d', brand: 'Bambu Lab', label: 'H2D', x: 325, y: 320, z: 325 },
+
+  { id: 'creality-ender3', brand: 'Creality', label: 'Ender 3', x: 220, y: 220, z: 250 },
+  { id: 'creality-ender5-plus', brand: 'Creality', label: 'Ender 5 Plus', x: 350, y: 350, z: 400 },
+  { id: 'creality-k1-max', brand: 'Creality', label: 'K1 Max', x: 300, y: 300, z: 300 },
+
+  { id: 'elegoo-nep4', brand: 'Elegoo', label: 'Neptune 4', x: 225, y: 225, z: 265 },
+
+  { id: 'prusa-mini', brand: 'Prusa', label: 'MINI+', x: 180, y: 180, z: 180 },
+  { id: 'prusa-mk4', brand: 'Prusa', label: 'MK4 / MK3S', x: 250, y: 210, z: 220 },
+  { id: 'prusa-xl', brand: 'Prusa', label: 'XL', x: 360, y: 360, z: 360 },
+
+  { id: 'voron-250', brand: 'Voron', label: '2.4 250', x: 250, y: 250, z: 250 },
+  { id: 'voron-350', brand: 'Voron', label: '2.4 350', x: 350, y: 350, z: 350 },
 ]
+
+/** Full name of a preset, for summaries and labels outside the picker. */
+export const printerName = (p: PrinterPreset): string =>
+  p.brand ? `${p.brand} ${p.label}` : p.label
+
+/** Presets grouped by manufacturer, preserving the order above. */
+export function printersByBrand(): { brand: string; printers: PrinterPreset[] }[] {
+  const groups: { brand: string; printers: PrinterPreset[] }[] = []
+  for (const printer of PRINTERS) {
+    if (!printer.brand) continue
+    const last = groups[groups.length - 1]
+    if (last?.brand === printer.brand) last.printers.push(printer)
+    else groups.push({ brand: printer.brand, printers: [printer] })
+  }
+  return groups
+}
 
 export interface SizePreset {
   id: string
@@ -59,7 +97,7 @@ export const SIZE_PRESETS: SizePreset[] = [
 
 export const DEFAULT_CONFIG: FrameConfig = {
   unit: 'in',
-  plate: { x: 256, y: 256, z: 256, smartOrientation: true },
+  plate: { printer: 'bambu-p1-x1', x: 256, y: 256, z: 256, smartOrientation: true },
   shape: 'rectangle',
   interiorWidth: inches(8),
   interiorHeight: inches(10),

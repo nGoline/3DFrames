@@ -68,6 +68,12 @@ export type TextPlacement = 'bottom' | 'top'
 export type JointStyle = 'dovetail' | 'tab' | 'dowel'
 
 export interface BuildPlate {
+  /**
+   * Id of the chosen printer preset, or 'custom'. Stored rather than inferred,
+   * because plenty of printers share a bed size — a Kobra S1 and a Voron 2.4
+   * 250 are both 250 × 250.
+   */
+  printer: string
   /** Usable build plate width in mm. */
   x: number
   /** Usable build plate depth in mm. */

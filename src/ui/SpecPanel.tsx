@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useFrameStore } from '../state/store.ts'
-import { PRINTERS, SIZE_PRESETS } from '../core/presets.ts'
+import { PRINTERS, SIZE_PRESETS, printerName, printersByBrand } from '../core/presets.ts'
 import { PROFILE_PRESETS, buildProfile, normaliseParams } from '../core/profiles.ts'
 import { FRAME_SHAPES } from '../core/shapes.ts'
 import { FACE_PATTERNS } from '../core/geometry/facePattern.ts'
@@ -23,7 +23,7 @@ export function SpecPanel() {
   const params = normaliseParams(config.profile)
   const profile = buildProfile(config.profilePreset, params, config.quality)
   const presetLabel = PROFILE_PRESETS.find((p) => p.id === config.profilePreset)?.label ?? 'Custom'
-  const printer = PRINTERS.find((p) => p.x === config.plate.x && p.y === config.plate.y && p.id !== 'custom')
+  const printer = PRINTERS.find((p) => p.id === config.plate.printer)
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100
@@ -37,31 +37,36 @@ export function SpecPanel() {
       <SectionDrawing profile={profile} params={params} unit={config.unit} presetLabel={presetLabel} />
 
       <Row id="printer" open={open} onToggle={toggle} label="Printer"
-        value={`${printer?.label ?? 'Custom'} · ${config.plate.x} × ${config.plate.y} mm`}>
+        value={`${printer && printer.id !== 'custom' ? printerName(printer) : 'Custom'} · ${config.plate.x} × ${config.plate.y} mm`}>
         <Field label="Build plate">
           <select
-            value={printer?.id ?? 'custom'}
+            value={config.plate.printer}
             onChange={(e) => {
               const preset = PRINTERS.find((p) => p.id === e.target.value)
-              if (preset) store.setPlate({ x: preset.x, y: preset.y, z: preset.z })
+              if (preset) store.setPlate({ printer: preset.id, x: preset.x, y: preset.y, z: preset.z })
             }}
           >
-            {PRINTERS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id === 'custom' ? 'Custom size' : `${p.label} — ${p.x} × ${p.y} mm`}
-              </option>
+            <option value="custom">Custom size</option>
+            {printersByBrand().map((group) => (
+              <optgroup key={group.brand} label={group.brand}>
+                {group.printers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label} — {p.x} × {p.y} mm
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </Field>
         <div className="pair">
           <Field label="Width mm">
             <input type="number" min={80} max={800} value={config.plate.x}
-              onChange={(e) => store.setPlate({ x: Number(e.target.value) || 180 })} />
+              onChange={(e) => store.setPlate({ printer: 'custom', x: Number(e.target.value) || 180 })} />
           </Field>
           <span className="times">×</span>
           <Field label="Depth mm">
             <input type="number" min={80} max={800} value={config.plate.y}
-              onChange={(e) => store.setPlate({ y: Number(e.target.value) || 180 })} />
+              onChange={(e) => store.setPlate({ printer: 'custom', y: Number(e.target.value) || 180 })} />
           </Field>
         </div>
         <Switch

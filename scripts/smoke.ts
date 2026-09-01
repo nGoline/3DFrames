@@ -71,7 +71,7 @@ for (const { id: shape } of FRAME_SHAPES) {
 import { readFileSync } from 'node:fs'
 import opentype from 'opentype.js'
 import { buildFrame } from '../src/core/frame.ts'
-import { DEFAULT_CONFIG } from '../src/core/presets.ts'
+import { DEFAULT_CONFIG, PRINTERS } from '../src/core/presets.ts'
 import { encodeStl, encodeCombinedStl } from '../src/core/export/stl.ts'
 import { encode3mf } from '../src/core/export/threemf.ts'
 import { encodeBundle } from '../src/core/export/bundle.ts'
@@ -213,6 +213,40 @@ console.log('')
     check(`${label}: every part lands inside its plate`, escaped.length === 0,
       escaped.map((p) => p.part.name).join(', '))
     console.log(`         ${label}: ${r.parts.length} parts over ${layout.plates} plate(s)${layout.diagonal ? ', diagonal' : ''}`)
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Printer presets. A typo here silently gives someone the wrong bed size, so
+// check the list holds together and that a real frame builds on each one.
+// ---------------------------------------------------------------------------
+{
+  const ids = PRINTERS.map((p) => p.id)
+  check('printer ids are unique', new Set(ids).size === ids.length,
+    ids.filter((id, i) => ids.indexOf(id) !== i).join(', '))
+  const odd = PRINTERS.filter((p) => p.x < 100 || p.y < 100 || p.z < 100 || p.x > 800 || p.y > 800 || p.z > 800)
+  check('every bed size is plausible', odd.length === 0, odd.map((p) => p.id).join(', '))
+  check('every preset but custom names a brand',
+    PRINTERS.every((p) => p.id === 'custom' || p.brand.length > 0))
+  check('the default config points at a real preset',
+    PRINTERS.some((p) => p.id === DEFAULT_CONFIG.plate.printer))
+
+  // The smallest and largest beds are where splitting is most likely to break.
+  const beds = [...PRINTERS].filter((p) => p.id !== 'custom').sort((a, b) => a.x * a.y - b.x * b.y)
+  for (const bed of [beds[0], beds[beds.length - 1], PRINTERS.find((p) => p.id === 'anycubic-kobra-s1')!]) {
+    const cfg: FrameConfig = {
+      ...DEFAULT_CONFIG,
+      interiorWidth: 610, interiorHeight: 914,
+      plate: { printer: bed.id, x: bed.x, y: bed.y, z: bed.z, smartOrientation: true },
+    }
+    const r = await buildFrame(cfg, deps)
+    const layout = layoutOnPlate(r.parts, cfg.plate)
+    const bad = layout.placements.filter((p) => p.overflow)
+    check(`24x36 poster on ${bed.brand} ${bed.label} (${bed.x}×${bed.y})`,
+      r.warnings.length === 0 && bad.length === 0,
+      [...r.warnings, ...bad.map((p) => p.part.name)].join('; '))
+    console.log(`         ${bed.label}: ${r.parts.length} parts over ${layout.plates} plate(s)`)
   }
 }
 
