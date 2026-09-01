@@ -220,9 +220,7 @@ export function SpecPanel() {
 
       <Row id="fittings" open={open} onToggle={toggle} label="Fittings" value={fittingsSummary(config.accessories)}>
         <Switch checked={config.accessories.backer} onChange={(v) => store.setAccessory('backer', v)}
-          title="Backing panel" note="A flat panel cut to the rabbet, to press the artwork forward." />
-        <Switch checked={config.accessories.clips} onChange={(v) => store.setAccessory('clips', v)}
-          title="Retainer bars" note="Printed slightly over-length so they spring into the rabbet and hold the stack." />
+          title="Snap-in back" note="A panel that presses in from behind and clicks into a groove round the rabbet, holding the artwork forward. Adds the groove to the frame." />
         <Switch checked={config.accessories.hanger} onChange={(v) => store.setAccessory('hanger', v)}
           title="Keyhole hanger" note="A plate for the back of the top rail, to hang on a single screw." />
         <Switch checked={config.accessories.easel} onChange={(v) => store.setAccessory('easel', v)}
@@ -234,15 +232,14 @@ export function SpecPanel() {
           label="Seam joint"
           value={config.joint.style}
           options={[
-            { id: 'dovetail' as const, label: 'Dovetail key', blurb: 'A butterfly key that pulls the seam closed. The strongest option.' },
-            { id: 'tab' as const, label: 'Straight tab', blurb: 'Easier to assemble; wants a drop of glue.' },
-            { id: 'dowel' as const, label: 'Twin dowels', blurb: 'Two pins. Best on very slender mouldings.' },
+            { id: 'snap' as const, label: 'Snap fit', blurb: 'A barbed tenon moulded onto one segment clicks into a socket in the next. No loose parts and no glue.' },
+            { id: 'key' as const, label: 'Butterfly key', blurb: 'A separate key dropped into a recess across the seam from the back. Traditional and very strong, but a part you can lose.' },
           ]}
           onChange={(style) => store.set({ joint: { ...config.joint, style } })}
         />
         <Slider label="Joint clearance" value={config.joint.tolerance} min={0} max={0.5} step={0.02}
           onChange={(tolerance) => store.set({ joint: { ...config.joint, tolerance } })}
-          hint="Per side. 0.15–0.2 mm suits most printers; raise it if the keys will not go in." />
+          hint="Per side. 0.15–0.2 mm suits most printers. Raise it if the seams will not close; lower it if they feel loose." />
         <Chips
           label="Curve quality"
           value={String(config.quality)}
@@ -282,10 +279,9 @@ function Row({
   )
 }
 
-function fittingsSummary(a: { easel: boolean; hanger: boolean; clips: boolean; backer: boolean }): string {
+function fittingsSummary(a: { easel: boolean; hanger: boolean; backer: boolean }): string {
   const on = [
-    a.backer && 'backing panel',
-    a.clips && 'retainer bars',
+    a.backer && 'snap-in back',
     a.hanger && 'hanger',
     a.easel && 'desk stands',
   ].filter(Boolean) as string[]

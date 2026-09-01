@@ -21,9 +21,11 @@ browser and the files never leave your machine.
 - **Nine face textures** cut into the surface as actual relief, so the grain or
   fluting survives into the print rather than being a render trick.
 - **Captions** embossed or engraved into a rail, in any of four bundled faces.
-- **Fittings**: backing panel, spring retainer bars, keyhole hanger, desk stands.
+- **Fittings**: a snap-in backing panel, keyhole hanger, and slotted desk stands.
 - **Automatic splitting.** Anything larger than your bed is cut into segments at
-  the mitres, joined by printed butterfly keys with an adjustable fit clearance.
+  the mitres, joined by integrated snap joints — no loose parts and no glue.
+- **Support-free printing.** Straight rails are exported lying on their outer
+  face, which is the orientation in which nothing overhangs.
 - **Exports** to per-part STL, a combined STL, a colour-coded 3MF at true scale,
   or a ZIP with all of it plus a printing and assembly guide.
 
@@ -63,10 +65,35 @@ rail sit corner-to-corner on a 256 mm bed.
 
 **Joints.** At each seam, the largest axis-aligned rectangle that actually fits
 inside the cut face is found by rasterising the section and running a
-largest-rectangle-in-histogram scan. The pocket is sized from that, so it stays
-buried in solid material whatever the profile looks like. The key itself is a
-butterfly: wide at both ends, pinched at the waist, so it resists the only force
-a picture frame joint really carries — the two segments pulling apart.
+largest-rectangle-in-histogram scan, so the joint stays buried in solid material
+whatever the profile looks like.
+
+The catch is that a joint set perpendicular to a mitre does not travel *along*
+the rail — it cuts across it. A point `t` millimetres from the seam sits at
+
+```
+u = (a + drift · |t|) / scale,     drift = √(scale² − 1)
+```
+
+so the joint walks toward the outer edge of the moulding as it reaches into a
+segment. `drift` is 0 at a mid-rail seam and 1 at a 90° corner. The whole swept
+footprint has to fit, not just the cut plane.
+
+The default joint is an integrated snap: a tenon on one segment, split
+lengthwise into two arms and carrying a barb near its tip, pushes into a socket
+in the next. The socket is a plain throat for the first part of its depth and
+then opens into a relief — the barb is forced through the throat, springs into
+the relief, and its shoulder bears on the step if the seam is pulled. A
+butterfly key is offered as an alternative, dropped into a recess cut across the
+seam **from the back**: that matters, because a butterfly is wider than its own
+waist and can only ever be inserted through a face, never edgewise.
+
+**Print orientation.** A frame lying face up puts the rabbet ceiling out over
+thin air — a ledge cantilevered right around the aperture. Turning a straight
+rail onto its outer face removes that overhang completely, since the
+cross-section then only ever loses area as the print rises. Curved runs cannot
+be laid on their outer face (it is a cylinder, and would touch the bed along one
+line), so they stay face up and are flagged as needing support.
 
 **Booleans.** Pockets, engraving and the keyhole plate go through
 [Manifold](https://github.com/elalish/manifold), which guarantees a closed,
@@ -114,9 +141,10 @@ src/core/           geometry, no DOM and no browser APIs
   geometry/
     sweep.ts        the offset sweep
     split.ts        where to cut so every piece fits the bed
-    joints.ts       butterfly keys and their pockets
+    joints.ts       snap tenons, sockets and butterfly keys
     facePattern.ts  surface relief as a height field
     packing.ts      convex hull, min-area rect, rect-in-rect fit
+  print.ts          per-part print orientation
   export/           STL, 3MF, ZIP bundle
 src/ui/             React panel, three.js viewport, bed arrangement
 scripts/smoke.ts    the geometry test suite
@@ -124,11 +152,14 @@ scripts/smoke.ts    the geometry test suite
 
 ## Printing notes
 
-Print every part exactly as exported — flat on the bed, decorative face up. No
-supports. Three perimeters and 15% infill is plenty for the frame; give the snap
-keys four or more, since they carry the whole joint. If the keys are tight,
-scale them down about 1%; if loose, scale up, or raise the joint clearance and
-regenerate.
+Print each STL exactly as exported. Straight rails come out already turned onto
+their outer face — that is what keeps the rabbet from being an overhang, so do
+not lay them flat. Nothing needs support unless your frame has curved runs, and
+the generated guide says which ones if so.
+
+Three perimeters and 15% infill is plenty; give the seams four or more, since
+they carry the joint. If a seam will not close, raise the joint clearance and
+regenerate; if it feels loose, lower it.
 
 ## Contributing
 

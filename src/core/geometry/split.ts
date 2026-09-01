@@ -34,6 +34,12 @@ export function planSplit(
   frames: MiterFrame[],
   profileWidth: number,
   plate: BuildPlate,
+  /**
+   * Extra length to budget for joint hardware. A snap tenon sticks out past the
+   * seam it belongs to, so a run that fits the bed on paper can overhang it once
+   * the joint is on.
+   */
+  jointAllowance = 0,
 ): SplitPlan {
   const notes: string[] = []
   const warnings: string[] = []
@@ -48,7 +54,7 @@ export function planSplit(
       pts.push([px + dir[0] * scale * profileWidth, py + dir[1] * scale * profileWidth])
     }
     const rect = minAreaRect(pts)
-    return { width: rect.width, height: rect.height }
+    return { width: rect.width + jointAllowance, height: rect.height }
   }
 
   const allIndices = Array.from({ length: n }, (_, i) => i)
@@ -104,7 +110,7 @@ export function planSplit(
 
   const biggest = segments.reduce((a, s) => Math.max(a, s.footprint.width), 0)
   notes.push(
-    `Split into ${segments.length} segments joined by ${seams.length} snap keys. Longest piece ${biggest.toFixed(0)} mm.`,
+    `Split into ${segments.length} segments across ${seams.length} seams. Longest piece ${biggest.toFixed(0)} mm.`,
   )
   if (plate.smartOrientation && biggest > Math.max(plate.x, plate.y)) {
     notes.push('Smart Orientation is placing the longest pieces diagonally on the bed.')

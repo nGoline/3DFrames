@@ -142,9 +142,9 @@ export function Viewport({ parts, preview, plate, mode, layout, fitToken }: Prop
     if (parts?.length) {
       const placements = mode === 'plate' ? layout?.placements : null
       parts.forEach((part) => {
-        const mesh = meshFor(part.positions, part.color)
-        mesh.name = part.name
         const spot = placements?.find((q) => q.part === part)
+        const mesh = meshFor(spot ? spot.positions : part.positions, part.color)
+        mesh.name = part.name
         if (spot) {
           mesh.rotation.z = spot.angle
           mesh.position.set(

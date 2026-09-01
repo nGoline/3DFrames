@@ -1,8 +1,11 @@
 import type { BuildPlate, Part } from '../core/types.ts'
 import { minAreaRect } from '../core/geometry/packing.ts'
+import { orientForPrint } from '../core/print.ts'
 
 export interface Placement {
   part: Part
+  /** The part's geometry in print orientation, before this placement. */
+  positions: Float32Array
   /** Rotation about Z, in radians. */
   angle: number
   /** Translation applied after rotation, in millimetres. */
@@ -24,6 +27,8 @@ const GAP = 6
 
 interface Measured {
   part: Part
+  /** The part already turned into its print orientation, sitting on Z = 0. */
+  positions: Float32Array
   /** Long-axis angle and size of the part's tightest bounding rectangle. */
   angle: number
   centre: [number, number]
@@ -41,11 +46,14 @@ interface Measured {
  * Anything that still will not fit spills onto another plate.
  */
 export function layoutOnPlate(parts: Part[], plate: BuildPlate): PlateLayout {
+  // Everything here works on print orientation, not assembled position: a rail
+  // lying on its outer face has a quite different footprint from one lying flat.
   const measured: Measured[] = parts.map((part) => {
+    const positions = orientForPrint(part)
     const hull: [number, number][] = []
-    for (let i = 0; i < part.positions.length; i += 3) hull.push([part.positions[i], part.positions[i + 1]])
+    for (let i = 0; i < positions.length; i += 3) hull.push([positions[i], positions[i + 1]])
     const rect = minAreaRect(hull)
-    return { part, angle: rect.angle, centre: rect.centre, length: rect.width, width: rect.height }
+    return { part, positions, angle: rect.angle, centre: rect.centre, length: rect.width, width: rect.height }
   })
 
   const squareFit = (m: Measured) =>
@@ -92,6 +100,7 @@ function shelfPack(
 
     out.push({
       part: item.part,
+      positions: item.positions,
       angle,
       offset: place(item, angle, cursorX + w / 2 - plate.x / 2, cursorY + h / 2 - plate.y / 2),
       plate: plateIndex,
@@ -188,6 +197,7 @@ function placement(
   const angle = theta - item.angle
   return {
     part: item.part,
+    positions: item.positions,
     angle,
     offset: place(item, angle, s * cos - t * sin, s * sin + t * cos),
     plate: plateIndex,
@@ -203,6 +213,6 @@ function place(item: Measured, angle: number, targetX: number, targetY: number):
   return [
     targetX - (cx * cos - cy * sin),
     targetY - (cx * sin + cy * cos),
-    -item.part.bounds.min[2],
+    0, // print orientation already sits the part on the bed
   ]
 }

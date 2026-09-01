@@ -5,10 +5,11 @@ import { createDisplacer } from './geometry/facePattern.ts'
 import { sweep } from './geometry/sweep.ts'
 import { planSplit } from './geometry/split.ts'
 import { buildJoint } from './geometry/joints.ts'
-import { buildAccessories, hangerOutline } from './geometry/accessories.ts'
+import { backerFit, backerGroove, buildAccessories, hangerOutline } from './geometry/accessories.ts'
 import { boundsOf, toTriangleSoup, volumeOf, type RawMesh } from './geometry/mesh.ts'
 import { textOutline } from './geometry/text.ts'
 import { fromManifold, toManifold, type Kernel } from './manifold.ts'
+import { UPRIGHT, onEnd, onOuterFace, seat } from './print.ts'
 
 /**
  * Everything `buildFrame` needs from its host. Injecting them keeps the whole
@@ -63,7 +64,21 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   }
   const outerSize: [number, number] = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY]
 
-  const plan = planSplit(path, frames, profileParams.width, config.plate)
+  // A snap tenon protrudes past its seam, so measure one up front and let the
+  // splitter budget for it — otherwise a run that fits on paper overhangs the
+  // bed once the joint is on.
+  const jointAllowance = (() => {
+    if (config.joint.style !== 'snap') return 0
+    const scales = [1, Math.max(...frames.map((f) => f.scale))]
+    let worst = 0
+    for (const scale of scales) {
+      const probe = buildJoint([0, 0], { dir: [1, 0], scale }, profile, config.joint)
+      if (probe?.tenon) worst = Math.max(worst, probe.size.length)
+    }
+    return worst > 0 ? worst + 1 : 0
+  })()
+
+  const plan = planSplit(path, frames, profileParams.width, config.plate, jointAllowance)
   notes.push(...plan.notes)
   warnings.push(...plan.warnings)
 
@@ -99,9 +114,9 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
     ),
   )
 
-  // ---- Snap kit -----------------------------------------------------------
+  // ---- Joints -------------------------------------------------------------
   const keys: RawMesh[] = []
-  // How far a key may reach from each seam: it has to stop well short of the
+  // How far a joint may reach from each seam: it has to stop well short of the
   // seam at the other end of the shortest neighbouring segment.
   const reachAt = (index: number): number => {
     const seams = plan.seams
@@ -111,24 +126,53 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
       const d = at[to] - at[from]
       return d > 0 ? d : d + total
     }
-    const next = gap(index, seams[(k + 1) % seams.length])
-    const prev = gap(seams[(k - 1 + seams.length) % seams.length], index)
-    return 0.42 * Math.min(next, prev)
+    return 0.42 * Math.min(gap(index, seams[(k + 1) % seams.length]),
+                           gap(seams[(k - 1 + seams.length) % seams.length], index))
   }
 
-  for (const seam of plan.seams) {
+  let snapping = 0
+  for (const [k, seam] of plan.seams.entries()) {
     const joint = buildJoint(path.points[seam], frames[seam], profile, config.joint, reachAt(seam))
     if (!joint) {
-      warnings.push('The moulding is too slender for a snap key here — the seam will need glue.')
+      warnings.push('The moulding is too slender for a joint here — this seam will need glue.')
       continue
     }
-    const pocket = toManifold(kernel, joint.pocket)
-    segments = segments.map((seg) => (boxesOverlap(seg, pocket) ? seg.subtract(pocket) : seg))
-    keys.push(joint.key)
+    if (joint.snaps) snapping++
+
+    if (joint.recess && joint.key) {
+      // Loose key: both segments meeting here get half the recess.
+      const cut = toManifold(kernel, joint.recess)
+      segments = segments.map((seg) => (boxesOverlap(seg, cut) ? seg.subtract(cut) : seg))
+      keys.push(joint.key)
+      continue
+    }
+    if (!joint.tenon || !joint.mortise) continue
+
+    // The tenon belongs to the segment *behind* the seam and reaches into the
+    // one in front of it, so work out which run lies on the +n side.
+    const { dir } = frames[seam]
+    const ahead = path.points[(seam + 1) % path.points.length]
+    const forward = (ahead[0] - path.points[seam][0]) * dir[1] - (ahead[1] - path.points[seam][1]) * dir[0]
+    const starts = k // plan.segments[k] begins at this seam
+    const ends = (k - 1 + plan.segments.length) % plan.segments.length
+    const female = forward > 0 ? starts : ends
+    const male = forward > 0 ? ends : starts
+
+    const socket = toManifold(kernel, joint.mortise)
+    const stud = toManifold(kernel, joint.tenon)
+    segments = segments.map((seg, i) => {
+      if (i === female) return seg.subtract(socket)
+      if (i === male) return seg.add(stud)
+      return seg
+    })
   }
-  if (keys.length) {
+  if (plan.seams.length) {
     notes.push(
-      `Print ${keys.length} snap ${keys.length === 1 ? 'key' : 'keys'} with a ${config.joint.tolerance.toFixed(2)} mm fit clearance.`,
+      config.joint.style === 'key'
+        ? `Print ${keys.length} butterfly ${keys.length === 1 ? 'key' : 'keys'} and drop them into the recesses from the back.`
+        : snapping === plan.seams.length
+          ? `Every seam is an integrated snap joint — no loose parts, and a ${config.joint.tolerance.toFixed(2)} mm clearance per side.`
+          : `${snapping} of ${plan.seams.length} seams snap; the rest are plain splines and want a drop of glue.`,
     )
   }
 
@@ -141,25 +185,48 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
     }
   }
 
+  const ctx = { points: path.points, frames, profile: profileParams, bounds }
+
+  // The snap-in back needs a groove round the rabbet to catch in, so cut it
+  // before the segments are turned into parts.
+  const fit = config.accessories.backer ? backerFit(profileParams) : null
+  if (fit) {
+    const groove = toManifold(kernel, backerGroove(ctx, fit, config.joint.tolerance))
+    segments = segments.map((seg) => seg.subtract(groove))
+  }
+
+
   // ---- Assemble the parts list -------------------------------------------
   const parts: Part[] = []
+  let curved = 0
   segments.forEach((seg, i) => {
+    const run = plan.segments[i].indices
+    const straight = isStraight(run, frames)
+    if (!straight) curved++
     parts.push(
       makePart(
         `frame-${i}`,
         plan.single ? 'Frame' : `Frame segment ${i + 1}`,
         'frame',
         fromManifold(seg),
+        straight ? onOuterFace(straight.tangent, straight.outward) : UPRIGHT,
+        !straight,
       ),
     )
   })
-  keys.forEach((key, i) => parts.push(makePart(`key-${i}`, `Snap key ${i + 1}`, 'snapkit', key)))
+  notes.push(
+    curved === 0
+      ? 'Rails print on their outer face, so the rabbet is never an overhang and no supports are needed.'
+      : `${curved} curved ${curved === 1 ? 'run prints' : 'runs print'} face up and will need support under the rabbet; the rest lie on their outer face, support free.`,
+  )
+  keys.forEach((key, i) => parts.push(makePart(`key-${i}`, `Butterfly key ${i + 1}`, 'snapkit', key)))
 
-  const ctx = { points: path.points, frames, profile: profileParams, bounds }
   const accessories = buildAccessories(config.accessories, ctx)
   notes.push(...accessories.notes)
   for (const acc of accessories.parts) {
-    parts.push(makePart(acc.id, acc.name, acc.kind, acc.mesh))
+    // The desk stands are prisms; stood on their cross-section they print
+    // without a single overhang. Everything else is already a flat slab.
+    parts.push(makePart(acc.id, acc.name, acc.kind, acc.mesh, acc.id.startsWith('stand') ? onEnd() : UPRIGHT))
   }
   const hanger = config.accessories.hanger ? hangerOutline(ctx) : null
   if (config.accessories.hanger && !hanger) {
@@ -198,9 +265,44 @@ function tally(messages: string[]): string[] {
   return [...counts].map(([message, n]) => (n > 1 ? `${message} (${n} seams)` : message))
 }
 
-function makePart(id: string, name: string, kind: Part['kind'], mesh: RawMesh): Part {
+function makePart(
+  id: string,
+  name: string,
+  kind: Part['kind'],
+  mesh: RawMesh,
+  rotation: number[] = UPRIGHT,
+  needsSupport = false,
+): Part {
   const positions = toTriangleSoup(mesh)
-  return { id, name, kind, positions, color: COLORS[kind], bounds: boundsOf(positions) }
+  return {
+    id,
+    name,
+    kind,
+    positions,
+    print: seat(rotation, positions),
+    needsSupport,
+    color: COLORS[kind],
+    bounds: boundsOf(positions),
+  }
+}
+
+/**
+ * A run is straight when every vertex shares one outward direction — which is
+ * exactly when it can be laid on its outer face for printing.
+ */
+function isStraight(
+  run: number[],
+  frames: ReturnType<typeof miterFrames>,
+): { tangent: [number, number]; outward: [number, number] } | false {
+  // Interior vertices carry the run's true normal; the mitred ends do not.
+  const inner = run.slice(1, -1)
+  if (!inner.length) return false
+  const first = frames[inner[0]].dir
+  for (const j of inner) {
+    const d = frames[j].dir
+    if (Math.abs(d[0] - first[0]) > 1e-3 || Math.abs(d[1] - first[1]) > 1e-3) return false
+  }
+  return { tangent: [-first[1], first[0]], outward: [first[0], first[1]] }
 }
 
 /** Cheap rejection test so we only run booleans on parts that can actually touch. */

@@ -2,7 +2,8 @@ import type { Accessories, ProfileParams, Vec2 } from '../types.ts'
 import type { MiterFrame } from '../shapes.ts'
 import { offsetPath } from '../shapes.ts'
 import type { RawMesh } from './mesh.ts'
-import { basisTransform, box, extrudePolygon, transformMesh } from './primitives.ts'
+import { basisTransform, extrudePolygon, transformMesh } from './primitives.ts'
+import { concat } from './joints.ts'
 
 export interface AccessoryPart {
   id: string
@@ -14,9 +15,9 @@ export interface AccessoryPart {
 /** Clearance between a printed part and the pocket it drops into. */
 const FIT_MM = 0.4
 /** Depth reserved at the front of the rabbet for the artwork and glazing. */
-const ARTWORK_MM = 1
-/** How far the retainer bars are printed over-length, so they grip. */
-const INTERFERENCE_MM = 0.6
+const ARTWORK_MM = 0.6
+/** How far the backing panel's rib stands proud, and so how far it must flex. */
+const CATCH_MM = 0.6
 
 export interface AccessoryContext {
   points: Vec2[]
@@ -26,13 +27,54 @@ export interface AccessoryContext {
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
+/** Where the snap groove sits inside the rabbet, in millimetres from the back. */
+export interface BackerFit {
+  /** Panel thickness. */
+  thickness: number
+  /** Z range the panel occupies. */
+  z0: number
+  z1: number
+  /** Z range of the rib and its groove. */
+  ribZ0: number
+  ribZ1: number
+}
+
+/**
+ * Work out the stack inside the rabbet, front to back: artwork against the
+ * rabbet ceiling, then the panel, with its rib landing halfway up the panel.
+ * Returns null when the rabbet is too shallow to hold a panel at all.
+ */
+export function backerFit(profile: ProfileParams): BackerFit | null {
+  const usable = profile.rabbetDepth - ARTWORK_MM
+  if (usable < 1.4) return null
+  const thickness = Math.min(2.4, Math.max(1.2, usable * 0.7))
+  const z1 = profile.rabbetDepth - ARTWORK_MM
+  const z0 = z1 - thickness
+  if (z0 < 0.2) return null
+  const rib = Math.min(1.2, thickness * 0.55)
+  const centre = (z0 + z1) / 2
+  return { thickness, z0, z1, ribZ0: centre - rib / 2, ribZ1: centre + rib / 2 }
+}
+
+/**
+ * The groove the panel's rib snaps into, to be subtracted from the frame.
+ *
+ * Cut as a disc reaching `CATCH_MM` past the rabbet wall: everything inside the
+ * rabbet is already void, so only the ring of material between the wall and the
+ * disc is actually removed.
+ */
+export function backerGroove(ctx: AccessoryContext, fit: BackerFit, tolerance: number): RawMesh {
+  const outline = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth + CATCH_MM + tolerance)
+  const z0 = fit.ribZ0 - tolerance
+  const z1 = fit.ribZ1 + tolerance
+  return translateZ(extrudePolygon(outline, z1 - z0), z0)
+}
+
 /**
  * The fittings that go with a frame.
  *
  * Everything here is positioned relative to the frame lying face-up with its
- * back on Z = 0, which is how the viewer shows it. Depth inside the rabbet is
- * budgeted front to back: artwork against the rabbet ceiling, backing panel
- * behind it, retainer bars behind that, filling flush to the back face.
+ * back on Z = 0, which is how the viewer shows it.
  */
 export function buildAccessories(
   want: Accessories,
@@ -42,55 +84,29 @@ export function buildAccessories(
   const notes: string[] = []
   const { profile } = ctx
 
-  // Front of the stack: everything behind this is fittings.
-  const stackTop = Math.max(0, profile.rabbetDepth - ARTWORK_MM)
-  const backerThickness = want.backer ? Math.max(1.2, Math.min(2.4, stackTop * 0.6)) : 0
-  const backerBase = stackTop - backerThickness
-
   if (want.backer) {
-    // Sits in the rabbet void, clear of the rabbet walls on every side.
-    const outline = offsetPath(ctx.points, ctx.frames, profile.rabbetWidth - FIT_MM)
-    parts.push({
-      id: 'backer',
-      name: 'Backing panel',
-      kind: 'backer',
-      mesh: translateZ(extrudePolygon(outline, backerThickness), backerBase),
-    })
-    notes.push(
-      `Backing panel is ${backerThickness.toFixed(1)} mm thick, leaving ${ARTWORK_MM.toFixed(1)} mm of rabbet at the front for the artwork and glazing.`,
-    )
-  }
-
-  if (want.clips) {
-    const thickness = backerBase
-    // The bar has to reach across the rabbet — wall to wall, not just across
-    // the aperture — plus a little, so it springs in and stays put. Measured
-    // against the true rabbet, not the clearance-reduced outline the backing
-    // panel uses, or the interference comes out negative.
-    const rabbet = offsetPath(ctx.points, ctx.frames, profile.rabbetWidth)
-    const placed: AccessoryPart[] = []
-    if (thickness >= 0.8) {
-      for (const [i, t] of [0.3, 0.7].entries()) {
-        const y = ctx.bounds.minY + (ctx.bounds.maxY - ctx.bounds.minY) * t
-        const chord = horizontalChord(rabbet, y)
-        if (!chord || chord[1] - chord[0] < 20) continue
-        const half = (chord[1] - chord[0] + INTERFERENCE_MM) / 2
-        const mid = (chord[0] + chord[1]) / 2
-        placed.push({
-          id: `clip-${i}`,
-          name: `Retainer bar ${i + 1}`,
-          kind: 'accessory',
-          mesh: box([mid - half, y - 5, 0], [mid + half, y + 5, thickness]),
-        })
-      }
-    }
-    if (placed.length) {
-      parts.push(...placed)
-      notes.push(
-        `Retainer bars are ${thickness.toFixed(1)} mm thick and printed ${INTERFERENCE_MM} mm over-length, so they spring across the rabbet and hold the stack forward.`,
-      )
+    const fit = backerFit(profile)
+    if (!fit) {
+      notes.push('The rabbet is too shallow for a backing panel — skipped. Try a deeper rabbet.')
     } else {
-      notes.push('The rabbet is too shallow or too small for retainer bars — skipped.')
+      // The panel proper, plus a rib right round its edge that catches in the
+      // frame's groove. Pushed in from the back, the panel bows just enough for
+      // the rib to clear the rabbet wall, then springs into the groove and
+      // holds the artwork forward against the rabbet ceiling.
+      const panel = offsetPath(ctx.points, ctx.frames, profile.rabbetWidth - FIT_MM)
+      const ribbed = offsetPath(ctx.points, ctx.frames, profile.rabbetWidth + CATCH_MM - FIT_MM)
+      parts.push({
+        id: 'backer',
+        name: 'Backing panel',
+        kind: 'backer',
+        mesh: concat(
+          translateZ(extrudePolygon(panel, fit.thickness), fit.z0),
+          translateZ(extrudePolygon(ribbed, fit.ribZ1 - fit.ribZ0), fit.ribZ0),
+        ),
+      })
+      notes.push(
+        `The ${fit.thickness.toFixed(1)} mm backing panel snaps into a groove round the rabbet — press it in from the back until it clicks. It holds the artwork forward with ${ARTWORK_MM.toFixed(1)} mm of clearance at the front.`,
+      )
     }
   }
 
@@ -193,19 +209,6 @@ export function hangerOutline(ctx: AccessoryContext): {
     // Flat against the back face of the top rail.
     place: (mesh) => translateY(translateZ(mesh, -thickness), yTop),
   }
-}
-
-/** The span of a closed polygon at a given Y, or null if the line misses it. */
-function horizontalChord(poly: Vec2[], y: number): [number, number] | null {
-  const xs: number[] = []
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i]
-    const b = poly[(i + 1) % poly.length]
-    if (a[1] > y === b[1] > y) continue
-    xs.push(a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]))
-  }
-  if (xs.length < 2) return null
-  return [Math.min(...xs), Math.max(...xs)]
 }
 
 function translateZ(mesh: RawMesh, dz: number): RawMesh {

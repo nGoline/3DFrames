@@ -8,6 +8,7 @@
 import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
+import { buildJoint } from '../src/core/geometry/joints.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
 import { PROFILE_PRESETS } from '../src/core/profiles.ts'
@@ -78,6 +79,7 @@ import { encodeBundle } from '../src/core/export/bundle.ts'
 import { weldVertices } from '../src/core/export/weld.ts'
 import { fitsOnPlate, minAreaRect } from '../src/core/geometry/packing.ts'
 import { layoutOnPlate } from '../src/ui/plateLayout.ts'
+import { orientForPrint } from '../src/core/print.ts'
 import type { FrameConfig } from '../src/core/types.ts'
 
 const nodeFont = (id: string) => {
@@ -127,15 +129,19 @@ console.log('')
   const r = await buildFrame(cfg, deps)
   partsAreSolid('24x36 on A1 mini', r)
   const segs = r.parts.filter((p) => p.kind === 'frame').length
-  const keys = r.parts.filter((p) => p.kind === 'snapkit').length
   check('poster frame is split into many segments', segs > 8, `${segs} segments`)
-  check('one snap key per seam', keys === segs, `${keys} keys / ${segs} segments`)
-  // The whole promise of the app: every printable part must actually fit.
-  const oversize = r.parts.filter((p) => {
+  check('snap joints leave no loose parts', r.parts.every((q) => q.kind !== 'snapkit'))
+  // The whole promise of the app: every printable part must actually fit, in
+  // the orientation it is exported in.
+  const oversize = r.parts.filter((part) => {
+    const pos = orientForPrint(part)
     const hull: [number, number][] = []
-    for (let i = 0; i < p.positions.length; i += 3) hull.push([p.positions[i], p.positions[i + 1]])
+    let tall = 0
+    for (let i = 0; i < pos.length; i += 3) {
+      hull.push([pos[i], pos[i + 1]])
+      if (pos[i + 2] > tall) tall = pos[i + 2]
+    }
     const rect = minAreaRect(hull)
-    const tall = p.bounds.max[2] - p.bounds.min[2]
     return !fitsOnPlate(rect.width, rect.height, 180, 180, true) || tall > 180
   })
   check('every part fits the 180 mm bed', oversize.length === 0, oversize.map((p) => p.name).join(', '))
@@ -149,7 +155,8 @@ console.log('')
     plate: { x: 220, y: 220, z: 250, smartOrientation: true },
     face: { pattern: 'fluted', depth: 0.6, scale: 5, angle: 0 },
     text: { content: 'Hello World', font: 'playfair', size: 9, style: 'raised', depth: 0.8, placement: 'bottom' },
-    accessories: { easel: true, hanger: true, clips: true, backer: true },
+    accessories: { easel: true, hanger: true, backer: true },
+    joint: { style: 'key', tolerance: 0.18 },
   }
   const r = await buildFrame(cfg, deps)
   partsAreSolid('everything enabled', r)
@@ -200,12 +207,12 @@ console.log('')
       layout.placements.every((p) => !p.overflow),
       layout.placements.filter((p) => p.overflow).map((p) => p.part.name).join(', '))
 
-    const escaped = layout.placements.filter((p) => {
-      const cos = Math.cos(p.angle)
-      const sin = Math.sin(p.angle)
-      for (let i = 0; i < p.part.positions.length; i += 3) {
-        const x = p.part.positions[i] * cos - p.part.positions[i + 1] * sin + p.offset[0]
-        const y = p.part.positions[i] * sin + p.part.positions[i + 1] * cos + p.offset[1]
+    const escaped = layout.placements.filter((q) => {
+      const cos = Math.cos(q.angle)
+      const sin = Math.sin(q.angle)
+      for (let i = 0; i < q.positions.length; i += 3) {
+        const x = q.positions[i] * cos - q.positions[i + 1] * sin + q.offset[0]
+        const y = q.positions[i] * sin + q.positions[i + 1] * cos + q.offset[1]
         if (Math.abs(x) > cfg.plate.x / 2 + 0.01 || Math.abs(y) > cfg.plate.y / 2 + 0.01) return true
       }
       return false
@@ -303,9 +310,11 @@ console.log('')
     check(`${label}: nothing sits outside the moulding`, ratio < 1e-4,
       `${outside.toFixed(1)} mm³ outside (${(ratio * 100).toFixed(2)}%)`)
 
-    // And the pockets must not have eaten more than the joint clearances.
+    // And the joints must not have eaten more than their clearances. The lower
+    // bound matters as much as the upper one: a kit *larger* than the frame it
+    // came from means something is inside out.
     const missing = (frame.volume() - assembled.volume()) / frame.volume()
-    check(`${label}: the kit still reassembles into the frame`, missing < 0.02,
+    check(`${label}: the kit still reassembles into the frame`, missing >= -1e-4 && missing < 0.02,
       `${(missing * 100).toFixed(2)}% of the frame is missing`)
   }
 }
@@ -321,7 +330,7 @@ console.log('')
   const cfg: FrameConfig = {
     ...DEFAULT_CONFIG,
     face: { ...DEFAULT_CONFIG.face, pattern: 'none' },
-    accessories: { easel: true, hanger: true, clips: true, backer: true },
+    accessories: { easel: true, hanger: true, backer: true },
   }
   const r = await buildFrame(cfg, deps)
   const p = cfg.profile
@@ -380,6 +389,97 @@ console.log('')
     check('Keyhole hanger fits within the top rail',
       hanger.bounds.min[1] >= railLo - 0.01 && hanger.bounds.max[1] <= railLo + p.width + 0.01,
       `y ${hanger.bounds.min[1].toFixed(1)}..${hanger.bounds.max[1].toFixed(1)}`)
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Print orientation and joint assembly.
+//
+// A frame lying face up puts the rabbet ceiling out over thin air, so straight
+// rails are turned onto their outer face. And a joint is only useful if it can
+// actually be put together: nothing may have a cavity wider than its mouth
+// unless something is able to flex.
+// ---------------------------------------------------------------------------
+{
+  const rect: FrameConfig = { ...DEFAULT_CONFIG, face: { ...DEFAULT_CONFIG.face, pattern: 'none' } }
+  const r = await buildFrame(rect, deps)
+
+  check('no part of a straight frame needs support', r.parts.every((p) => !p.needsSupport))
+  for (const part of r.parts.filter((p) => p.kind === 'frame')) {
+    const pos = orientForPrint(part)
+    let minZ = Infinity, maxZ = -Infinity, maxY = -Infinity
+    for (let i = 2; i < pos.length; i += 3) {
+      if (pos[i] < minZ) minZ = pos[i]
+      if (pos[i] > maxZ) maxZ = pos[i]
+    }
+    for (let i = 1; i < pos.length; i += 3) if (pos[i] > maxY) maxY = pos[i]
+    check(`${part.name} is seated on the bed`, Math.abs(minZ) < 1e-4, `min z ${minZ.toFixed(3)}`)
+    // On its outer face the rail stands as tall as the moulding is wide, and is
+    // only as deep as the moulding is thick — the giveaway that it was turned.
+    check(`${part.name} prints on its outer face`,
+      Math.abs(maxZ - rect.profile.width) < 0.6, `stands ${maxZ.toFixed(1)} mm, moulding is ${rect.profile.width} mm wide`)
+  }
+
+  // A curved frame cannot lie on its outer face, and should say so rather than
+  // quietly producing a part that needs support nobody was told about.
+  const round = await buildFrame(
+    { ...rect, shape: 'circle', interiorWidth: 400, interiorHeight: 400 },
+    deps,
+  )
+  check('curved runs are flagged as needing support',
+    round.parts.some((p) => p.kind === 'frame' && p.needsSupport))
+  check('and the notes say so', round.notes.some((n) => /support/i.test(n)))
+
+  // The loose butterfly is only assemblable because its recess opens onto the
+  // back face — pushed in edgewise it would jam, since the cavity is wider than
+  // the mouth. Guard the property that makes it work.
+  const keyed = await buildFrame({ ...rect, joint: { style: 'key', tolerance: 0.18 } }, deps)
+  const butterflies = keyed.parts.filter((p) => p.kind === 'snapkit')
+  check('butterfly keys exist for the key style', butterflies.length > 0)
+  for (const key of butterflies) {
+    check(`${key.name} drops in from the back face`, Math.abs(key.bounds.min[2]) < 0.01,
+      `starts at z ${key.bounds.min[2].toFixed(2)}`)
+  }
+  check('snap joints leave nothing loose', r.parts.every((p) => p.kind !== 'snapkit'))
+
+  // A snap is only a snap if the barb genuinely interferes with the socket
+  // throat — and only assemblable if that interference is small enough for the
+  // arms to absorb. Both halves are checked directly.
+  const profile = buildProfile(rect.profilePreset, normaliseParams(rect.profile), rect.quality)
+  for (const [what, scale] of [['mitre', Math.SQRT2], ['mid-rail', 1]] as [string, number][]) {
+    const j = buildJoint([0, 0], { dir: [1, 0], scale }, profile, rect.joint)
+    if (!j?.tenon || !j.mortise) {
+      check(`${what} joint is built`, false)
+      continue
+    }
+    check(`${what} joint has flexing arms`, j.snaps)
+    const solidOf = (mesh: { vertProperties: Float32Array; triVerts: Uint32Array }) =>
+      Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: mesh.vertProperties, triVerts: mesh.triVerts }))
+    const tenon = solidOf(j.tenon)
+    const socket = solidOf(j.mortise)
+    check(`${what} tenon is not inside out`, tenon.volume() > 0, `${tenon.volume().toFixed(1)} mm³`)
+    check(`${what} socket is not inside out`, socket.volume() > 0, `${socket.volume().toFixed(1)} mm³`)
+    // Seated, the barb sits in its relief and the joint is free — that is what
+    // lets the seam close fully rather than standing off on the barb.
+    const seated = tenon.subtract(socket).volume() / tenon.volume()
+    check(`${what} joint is free once seated`, seated < 0.001,
+      `${(seated * 100).toFixed(2)}% of the tenon still fouls`)
+
+    // Part way in, the barb has to be forced through the socket throat. Only
+    // the material still inside the socket's own envelope counts — the rest of
+    // the tenon is simply not in the hole yet.
+    // n = (dir.y, −dir.x) = (0, −1) here, so backing out is +Y.
+    const bb = socket.boundingBox()
+    const envelope = Manifold.cube(
+      [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]],
+    ).translate(bb.min)
+    const entering = tenon.translate(0, j.size.length * 0.35, 0).intersect(envelope)
+    const foul = entering.subtract(socket).volume() / entering.volume()
+    check(`${what} barb has to be forced through the throat`, foul > 0.005,
+      `${(foul * 100).toFixed(2)}% of the entering section`)
+    check(`${what} that interference is small enough to flex past`, foul < 0.25,
+      `${(foul * 100).toFixed(2)}% of the entering section`)
   }
 }
 

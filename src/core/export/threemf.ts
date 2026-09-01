@@ -1,6 +1,7 @@
 import { zipSync, strToU8 } from 'fflate'
 import type { Part } from '../types.ts'
 import { weldVertices } from './weld.ts'
+import { orientForPrint } from '../print.ts'
 
 const CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 
@@ -11,8 +12,9 @@ const escapeXml = (value: string) =>
  * Write a 3MF holding every part as its own coloured object.
  *
  * 3MF carries real units (millimetres, declared once) and per-object colour,
- * so a slicer opens the kit at the right size with the frame, snap keys and
+ * so a slicer opens the kit at the right size with the frame, joints and
  * accessories already distinguishable — none of which an STL can express.
+ * Objects are written in their print orientation, ready to arrange and slice.
  */
 export function encode3mf(parts: Part[], title: string): Uint8Array {
   const materials = parts
@@ -21,7 +23,7 @@ export function encode3mf(parts: Part[], title: string): Uint8Array {
 
   const objects = parts
     .map((part, i) => {
-      const { vertices, indices } = weldVertices(part.positions)
+      const { vertices, indices } = weldVertices(orientForPrint(part))
       const verts: string[] = []
       for (let v = 0; v < vertices.length; v += 3) {
         verts.push(

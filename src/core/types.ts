@@ -65,7 +65,7 @@ export type FacePattern =
 export type TextStyle = 'raised' | 'engraved'
 export type TextPlacement = 'bottom' | 'top'
 
-export type JointStyle = 'dovetail' | 'tab' | 'dowel'
+export type JointStyle = 'snap' | 'key'
 
 export interface BuildPlate {
   /**
@@ -126,15 +126,16 @@ export interface Accessories {
   easel: boolean
   /** A keyhole hanger plate for the wall. */
   hanger: boolean
-  /** Sprung clips that hold the backing board into the rabbet. */
-  clips: boolean
-  /** A flat backing panel sized to the rabbet. */
+  /**
+   * A backing panel that snaps into a groove around the rabbet, holding the
+   * artwork forward. Adds the matching groove to the frame.
+   */
   backer: boolean
 }
 
 export interface JointConfig {
   style: JointStyle
-  /** Nominal clearance between key and pocket, per side (mm). */
+  /** Nominal clearance between the male and female halves, per side (mm). */
   tolerance: number
 }
 
@@ -164,6 +165,14 @@ export interface Part {
   kind: 'frame' | 'snapkit' | 'accessory' | 'backer'
   /** Triangle soup, already in millimetres and laid out in assembled position. */
   positions: Float32Array
+  /**
+   * Transform from assembled position into the orientation the part should be
+   * printed in, sitting on Z = 0. Straight rails are turned onto their outer
+   * face so the rabbet is not a cantilevered overhang.
+   */
+  print: number[]
+  /** True when this part still needs support in its print orientation. */
+  needsSupport: boolean
   /** Optional per-part display colour. */
   color: string
   /** Bounding box in assembled position. */
