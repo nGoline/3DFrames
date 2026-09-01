@@ -161,8 +161,12 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   for (const acc of accessories.parts) {
     parts.push(makePart(acc.id, acc.name, acc.kind, acc.mesh))
   }
-  if (config.accessories.hanger) {
-    const spec = hangerOutline(ctx)
+  const hanger = config.accessories.hanger ? hangerOutline(ctx) : null
+  if (config.accessories.hanger && !hanger) {
+    warnings.push('The moulding is too narrow for a keyhole hanger — skipped.')
+  }
+  if (hanger) {
+    const spec = hanger
     const plate = new kernel.CrossSection([spec.outer as [number, number][]], 'NonZero')
       .subtract(new kernel.CrossSection(spec.holes as [number, number][][], 'NonZero'))
       .extrude(spec.thickness)

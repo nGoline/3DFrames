@@ -310,5 +310,78 @@ console.log('')
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Fittings have to sit where they claim to. The backing panel and hanger must
+// occupy voids in the frame rather than clash with it, the retainer bars must
+// actually span the rabbet, and nothing but the stand's slot lip may come round
+// to the front of the picture.
+// ---------------------------------------------------------------------------
+{
+  const cfg: FrameConfig = {
+    ...DEFAULT_CONFIG,
+    face: { ...DEFAULT_CONFIG.face, pattern: 'none' },
+    accessories: { easel: true, hanger: true, clips: true, backer: true },
+  }
+  const r = await buildFrame(cfg, deps)
+  const p = cfg.profile
+  const solid = (part: (typeof r.parts)[number]) => {
+    const { vertices, indices } = weldVertices(part.positions)
+    return Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: vertices, triVerts: indices }))
+  }
+  const frame = r.parts
+    .filter((q) => q.kind === 'frame')
+    .map(solid)
+    .reduce((a, b) => a.add(b))
+  const named = (needle: string) => r.parts.filter((q) => q.name.includes(needle))
+
+  for (const kind of ['Backing panel', 'Keyhole hanger', 'Desk stand']) {
+    const clash = named(kind).map((q) => solid(q).intersect(frame).volume())
+    check(`${kind} does not clash with the frame`, clash.every((v) => v < 1),
+      clash.map((v) => v.toFixed(1) + ' mm³').join(', '))
+  }
+
+  for (const part of named('Backing panel').concat(named('Retainer bar'))) {
+    check(`${part.name} stays inside the rabbet`,
+      part.bounds.min[2] >= -0.01 && part.bounds.max[2] <= p.rabbetDepth + 0.01,
+      `z ${part.bounds.min[2].toFixed(1)}..${part.bounds.max[2].toFixed(1)}, rabbet is ${p.rabbetDepth}`)
+  }
+
+  // The bars only work if they are longer than the gap they wedge into.
+  const rabbetSpan = cfg.interiorWidth + 2 * p.rabbetWidth
+  for (const bar of named('Retainer bar')) {
+    const over = bar.bounds.max[0] - bar.bounds.min[0] - rabbetSpan
+    check(`${bar.name} spans the rabbet with interference`, over > 0.1 && over < 2,
+      `${over.toFixed(2)} mm over a ${rabbetSpan.toFixed(1)} mm span`)
+  }
+
+  // Nothing may stand proud of the picture except the stand's slot lip.
+  for (const part of r.parts) {
+    const limit = part.name.startsWith('Desk stand') ? p.depth + 6 : p.depth + 0.01
+    check(`${part.name} does not block the front of the picture`, part.bounds.max[2] <= limit,
+      `reaches z ${part.bounds.max[2].toFixed(1)}, limit ${limit.toFixed(1)}`)
+  }
+
+  // A stand that sits in front of the frame would tip it over.
+  for (const stand of named('Desk stand')) {
+    const front = stand.bounds.max[2] - p.depth
+    const back = -stand.bounds.min[2]
+    check(`${stand.name} sits behind the frame`, back > front * 3,
+      `${back.toFixed(1)} mm behind vs ${front.toFixed(1)} mm in front`)
+    check(`${stand.name} grips the bottom rail`,
+      stand.bounds.max[1] > -cfg.interiorHeight / 2 - p.width + 4 &&
+        stand.bounds.max[1] < -cfg.interiorHeight / 2,
+      `top at y ${stand.bounds.max[1].toFixed(1)}`)
+  }
+
+  const hanger = named('Keyhole hanger')[0]
+  if (hanger) {
+    const railLo = cfg.interiorHeight / 2
+    check('Keyhole hanger fits within the top rail',
+      hanger.bounds.min[1] >= railLo - 0.01 && hanger.bounds.max[1] <= railLo + p.width + 0.01,
+      `y ${hanger.bounds.min[1].toFixed(1)}..${hanger.bounds.max[1].toFixed(1)}`)
+  }
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')
 process.exit(failures ? 1 : 0)
