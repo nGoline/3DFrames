@@ -1,7 +1,8 @@
 import { zipSync, strToU8 } from 'fflate'
-import type { Part } from '../types.ts'
+import type { BuildPlate, Part } from '../types.ts'
 import { weldVertices } from './weld.ts'
 import { orientForPrint } from '../print.ts'
+import { PLATE_GAP, layoutOnPlate } from '../plateLayout.ts'
 
 const CORE_NS = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02'
 
@@ -16,7 +17,14 @@ const escapeXml = (value: string) =>
  * accessories already distinguishable — none of which an STL can express.
  * Objects are written in their print orientation, ready to arrange and slice.
  */
-export function encode3mf(parts: Part[], title: string): Uint8Array {
+export function encode3mf(parts: Part[], title: string, plate: BuildPlate): Uint8Array {
+  // Every object's geometry is centred on its own origin, which is what a
+  // single-object STL wants but would stack the whole kit in a heap here. Each
+  // build item carries the bed position from the same arrangement the preview
+  // shows, shifted into the positive quadrant because slicers put the bed
+  // origin at its front-left corner.
+  const layout = layoutOnPlate(parts, plate)
+  const spotFor = new Map(layout.placements.map((p) => [p.part, p]))
   const materials = parts
     .map((p, i) => `      <base name="${escapeXml(p.name)}" displaycolor="${toDisplayColor(p.color)}"/>${i === parts.length - 1 ? '' : ''}`)
     .join('\n')
@@ -49,7 +57,20 @@ export function encode3mf(parts: Part[], title: string): Uint8Array {
     })
     .join('\n')
 
-  const items = parts.map((_, i) => `    <item objectid="${i + 2}"/>`).join('\n')
+  const items = parts
+    .map((part, i) => {
+      const spot = spotFor.get(part)
+      if (!spot) return `    <item objectid="${i + 2}"/>`
+      const cos = Math.cos(spot.angle)
+      const sin = Math.sin(spot.angle)
+      const tx = spot.offset[0] + spot.plate * (plate.x + PLATE_GAP) + plate.x / 2
+      const ty = spot.offset[1] + plate.y / 2
+      // 3MF transforms are a row-major 4×3 matrix applied to row vectors, so
+      // the translation is the last row.
+      const m = [cos, sin, 0, -sin, cos, 0, 0, 0, 1, tx, ty, spot.offset[2]]
+      return `    <item objectid="${i + 2}" transform="${m.map(fmt).join(' ')}"/>`
+    })
+    .join('\n')
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="${CORE_NS}">

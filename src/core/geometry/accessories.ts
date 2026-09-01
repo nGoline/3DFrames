@@ -1,4 +1,4 @@
-import type { Accessories, ProfileParams, Vec2 } from '../types.ts'
+import type { Accessories, BuildPlate, ProfileParams, Vec2 } from '../types.ts'
 import type { MiterFrame } from '../shapes.ts'
 import { offsetPath } from '../shapes.ts'
 import type { RawMesh } from './mesh.ts'
@@ -25,6 +25,7 @@ export interface AccessoryContext {
   profile: ProfileParams
   /** Bounding box of the assembled frame in plan. */
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
+  plate: BuildPlate
 }
 
 /** Where the snap groove sits inside the rabbet, in millimetres from the back. */
@@ -104,9 +105,6 @@ export function buildAccessories(
           translateZ(extrudePolygon(ribbed, fit.ribZ1 - fit.ribZ0), fit.ribZ0),
         ),
       })
-      notes.push(
-        `The ${fit.thickness.toFixed(1)} mm backing panel snaps into a groove round the rabbet — press it in from the back until it clicks. It holds the artwork forward with ${ARTWORK_MM.toFixed(1)} mm of clearance at the front.`,
-      )
     }
   }
 

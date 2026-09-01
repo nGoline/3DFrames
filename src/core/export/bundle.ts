@@ -23,7 +23,7 @@ export function encodeBundle(result: BuildResult, config: FrameConfig, title: st
   // The assembled STL stays in assembled position — it is for looking at, not
   // for slicing.
   files['assembled.stl'] = new Uint8Array(encodeCombinedStl(result.parts))
-  files['frame.3mf'] = encode3mf(result.parts, title)
+  files['frame.3mf'] = encode3mf(result.parts, title, config.plate)
   files['README.txt'] = strToU8(printingGuide(result, config, title))
 
   return zipSync(files, { level: 6 })

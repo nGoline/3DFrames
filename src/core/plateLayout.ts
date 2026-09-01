@@ -1,6 +1,6 @@
-import type { BuildPlate, Part } from '../core/types.ts'
-import { minAreaRect } from '../core/geometry/packing.ts'
-import { orientForPrint } from '../core/print.ts'
+import type { BuildPlate, Part } from './types.ts'
+import { minAreaRect } from './geometry/packing.ts'
+import { orientForPrint } from './print.ts'
 
 export interface Placement {
   part: Part
@@ -24,6 +24,9 @@ export interface PlateLayout {
 }
 
 const GAP = 6
+
+/** Space left between plates when a kit needs more than one. */
+export const PLATE_GAP = 40
 
 interface Measured {
   part: Part

@@ -2,12 +2,9 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { BuildPlate, Part } from '../core/types.ts'
-import type { PlateLayout } from './plateLayout.ts'
+import { PLATE_GAP, type PlateLayout } from '../core/plateLayout.ts'
 
 export type ViewMode = 'assembled' | 'plate'
-
-/** Gap between plates when a kit needs more than one. */
-export const PLATE_GAP = 40
 
 interface Props {
   parts: Part[] | null

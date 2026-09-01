@@ -1,4 +1,4 @@
-import type { BuildResult, FrameConfig, Part, Vec2 } from './types.ts'
+import type { BuildPlate, BuildResult, FrameConfig, Part, Vec2 } from './types.ts'
 import { buildOpeningPath, densifyPath, miterFrames, offsetPath, pathLengths } from './shapes.ts'
 import { buildProfile, normaliseParams } from './profiles.ts'
 import { createDisplacer } from './geometry/facePattern.ts'
@@ -7,6 +7,8 @@ import { planSplit } from './geometry/split.ts'
 import { buildJoint } from './geometry/joints.ts'
 import { backerFit, backerGroove, buildAccessories, hangerOutline } from './geometry/accessories.ts'
 import { boundsOf, toTriangleSoup, volumeOf, type RawMesh } from './geometry/mesh.ts'
+import { box } from './geometry/primitives.ts'
+import { fitsOnPlate } from './geometry/packing.ts'
 import { textOutline } from './geometry/text.ts'
 import { fromManifold, toManifold, type Kernel } from './manifold.ts'
 import { UPRIGHT, onEnd, onOuterFace, seat } from './print.ts'
@@ -185,7 +187,7 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
     }
   }
 
-  const ctx = { points: path.points, frames, profile: profileParams, bounds }
+  const ctx = { points: path.points, frames, profile: profileParams, bounds, plate: config.plate }
 
   // The snap-in back needs a groove round the rabbet to catch in, so cut it
   // before the segments are turned into parts.
@@ -224,6 +226,36 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   const accessories = buildAccessories(config.accessories, ctx)
   notes.push(...accessories.notes)
   for (const acc of accessories.parts) {
+    // A backing panel for anything above about 5 × 7 in is wider than a bed and
+    // cannot be mitred into segments the way a rail can. Cut it into strips
+    // instead: each one still spans the opening, so each still catches the
+    // groove along the two edges it reaches.
+    if (acc.kind === 'backer') {
+      const pieces = sliceToFit(kernel, acc.mesh, config.plate)
+      if (!pieces) {
+        const size = boundsOf(toTriangleSoup(acc.mesh))
+        notes.push(
+          `A backing panel for this frame would be ${(size.max[0] - size.min[0]).toFixed(0)} × ${(size.max[1] - size.min[1]).toFixed(0)} mm — too wide for the bed however it is cut up, so it is skipped. Cut one from card or foamboard instead; the groove will still hold it.`,
+        )
+        continue
+      }
+      pieces.forEach((piece, i) => {
+        parts.push(
+          makePart(
+            pieces.length > 1 ? `${acc.id}-${i}` : acc.id,
+            pieces.length > 1 ? `${acc.name} ${i + 1}` : acc.name,
+            acc.kind,
+            piece,
+          ),
+        )
+      })
+      notes.push(
+        pieces.length > 1
+          ? `The backing panel is wider than the bed, so it comes in ${pieces.length} strips that butt together behind the artwork. Each still snaps into the groove along the edges it reaches.`
+          : `The backing panel snaps into a groove round the rabbet — press it in from the back until it clicks, and it holds the artwork forward against the rabbet ceiling.`,
+      )
+      continue
+    }
     // The desk stands are prisms; stood on their cross-section they print
     // without a single overhang. Everything else is already a flat slab.
     parts.push(makePart(acc.id, acc.name, acc.kind, acc.mesh, acc.id.startsWith('stand') ? onEnd() : UPRIGHT))
@@ -284,6 +316,44 @@ function makePart(
     color: COLORS[kind],
     bounds: boundsOf(positions),
   }
+}
+
+/**
+ * Cut a flat panel into as few bed-sized strips as it takes, along whichever
+ * axis is longer. Strips butt together with a hair of clearance.
+ *
+ * Only ever cut one way. A strip still runs the full width of the opening, so
+ * it still catches the groove along the two edges it reaches; tiling both ways
+ * would leave the middle pieces held by nothing at all. Returns null when no
+ * number of strips will fit, which is the honest answer for a poster frame.
+ */
+function sliceToFit(kernel: Kernel, mesh: RawMesh, plate: BuildPlate): RawMesh[] | null {
+  const GAP = 0.2
+  const MAX_STRIPS = 6
+  const bounds = boundsOf(toTriangleSoup(mesh))
+  const size = [bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1]]
+  const fits = (a: number, b: number) => fitsOnPlate(a, b, plate.x, plate.y, plate.smartOrientation)
+  if (fits(size[0], size[1])) return [mesh]
+
+  const axis = size[0] >= size[1] ? 0 : 1
+  const other = 1 - axis
+  let count = 2
+  while (count <= MAX_STRIPS && !fits(size[axis] / count, size[other])) count++
+  // The un-split axis is itself wider than the bed; no number of strips helps.
+  if (count > MAX_STRIPS) return null
+
+  const solid = toManifold(kernel, mesh)
+  const step = size[axis] / count
+  const pieces: RawMesh[] = []
+  for (let i = 0; i < count; i++) {
+    const min: [number, number, number] = [bounds.min[0] - 1, bounds.min[1] - 1, bounds.min[2] - 1]
+    const max: [number, number, number] = [bounds.max[0] + 1, bounds.max[1] + 1, bounds.max[2] + 1]
+    min[axis] = bounds.min[axis] + i * step + (i === 0 ? -1 : GAP / 2)
+    max[axis] = bounds.min[axis] + (i + 1) * step - (i === count - 1 ? -1 : GAP / 2)
+    const strip = solid.intersect(toManifold(kernel, box(min, max)))
+    if (!strip.isEmpty()) pieces.push(fromManifold(strip))
+  }
+  return pieces.length ? pieces : null
 }
 
 /**

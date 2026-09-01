@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useFrameStore } from './state/store.ts'
 import { SpecPanel } from './ui/SpecPanel.tsx'
 import { Viewport, type ViewMode } from './ui/Viewport.tsx'
-import { layoutOnPlate } from './ui/plateLayout.ts'
+import { layoutOnPlate } from './core/plateLayout.ts'
 import { formatSize } from './core/units.ts'
 import { encodeBundle } from './core/export/bundle.ts'
 import { encodeCombinedStl, encodeStl } from './core/export/stl.ts'
@@ -120,7 +120,7 @@ export default function App() {
               Complete kit <small>ZIP · one STL per part + guide</small>
             </button>
             <button type="button" onClick={() => {
-              download(encode3mf(result.parts, title), `${slug}.3mf`, 'model/3mf')
+              download(encode3mf(result.parts, title, config.plate), `${slug}.3mf`, 'model/3mf')
               setShowDownloads(false)
             }}>
               Coloured 3MF <small>every part, correct scale</small>

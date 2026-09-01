@@ -75,10 +75,11 @@ import { buildFrame } from '../src/core/frame.ts'
 import { DEFAULT_CONFIG, PRINTERS } from '../src/core/presets.ts'
 import { encodeStl, encodeCombinedStl } from '../src/core/export/stl.ts'
 import { encode3mf } from '../src/core/export/threemf.ts'
+import { unzipSync, strFromU8 } from 'fflate'
 import { encodeBundle } from '../src/core/export/bundle.ts'
 import { weldVertices } from '../src/core/export/weld.ts'
-import { fitsOnPlate, minAreaRect } from '../src/core/geometry/packing.ts'
-import { layoutOnPlate } from '../src/ui/plateLayout.ts'
+import { convexHull, fitsOnPlate, minAreaRect } from '../src/core/geometry/packing.ts'
+import { layoutOnPlate } from '../src/core/plateLayout.ts'
 import { determinant, orientForPrint } from '../src/core/print.ts'
 import type { FrameConfig } from '../src/core/types.ts'
 
@@ -190,7 +191,7 @@ console.log('')
   check('combined STL covers every part', new DataView(encodeCombinedStl(r.parts)).getUint32(80, true) ===
     r.parts.reduce((n, p) => n + p.positions.length / 9, 0))
 
-  const mf = encode3mf(r.parts, 'Test')
+  const mf = encode3mf(r.parts, 'Test', cfg.plate)
   check('3MF is a zip', mf[0] === 0x50 && mf[1] === 0x4b, `${mf[0]},${mf[1]}`)
   const bundle = encodeBundle(r, cfg, 'Test frame')
   check('bundle is a zip and non-trivial', bundle[0] === 0x50 && bundle.length > 5000, `${bundle.length} bytes`)
@@ -501,6 +502,85 @@ console.log('')
     check(`${what} that interference is small enough to flex past`, foul < 0.25,
       `${(foul * 100).toFixed(2)}% of the entering section`)
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// The 3MF has to open as an arrangement, not a heap. Every object's geometry is
+// centred on its own origin, so without a per-item transform they all land on
+// top of each other at the bed origin.
+// ---------------------------------------------------------------------------
+{
+  const cfg: FrameConfig = {
+    ...DEFAULT_CONFIG,
+    interiorWidth: 610, interiorHeight: 914,
+    plate: { printer: 'custom', x: 200, y: 250, z: 250, smartOrientation: true },
+    accessories: { easel: true, hanger: true, backer: true },
+  }
+  const r = await buildFrame(cfg, deps)
+  const files = unzipSync(encode3mf(r.parts, 'Layout test', cfg.plate))
+  const model = strFromU8(files['3D/3dmodel.model'])
+
+  const items = [...model.matchAll(/<item objectid="(\d+)"(?: transform="([^"]*)")?\/>/g)]
+  check('3MF has one build item per part', items.length === r.parts.length,
+    `${items.length} items for ${r.parts.length} parts`)
+  check('every build item is positioned', items.every((m) => m[2]),
+    `${items.filter((m) => !m[2]).length} items have no transform`)
+
+  // Place each part's bounding box by its item transform and check nothing
+  // shares space with anything else.
+  const boxes = items.map((m, i) => {
+    const t = m[2].split(/\s+/).map(Number)
+    const pos = orientForPrint(r.parts[i])
+    const pts: [number, number][] = []
+    let lo: [number, number] = [Infinity, Infinity]
+    for (let k = 0; k < pos.length; k += 3) {
+      // Row-vector convention: v' = v · M, translation in the last row.
+      const x = pos[k] * t[0] + pos[k + 1] * t[3] + pos[k + 2] * t[6] + t[9]
+      const y = pos[k] * t[1] + pos[k + 1] * t[4] + pos[k + 2] * t[7] + t[10]
+      pts.push([x, y])
+      lo = [Math.min(lo[0], x), Math.min(lo[1], y)]
+    }
+    return { name: r.parts[i].name, lo, hull: convexHull(pts) }
+  })
+
+  // Axis-aligned boxes are useless here — parallel diagonal bars have heavily
+  // overlapping AABBs while sitting comfortably side by side. Test the convex
+  // hulls with the separating axis theorem instead.
+  const separated = (a: [number, number][], b: [number, number][]) => {
+    for (const poly of [a, b]) {
+      for (let i = 0; i < poly.length; i++) {
+        const p1 = poly[i]
+        const p2 = poly[(i + 1) % poly.length]
+        const nx = -(p2[1] - p1[1])
+        const ny = p2[0] - p1[0]
+        const span = (pts: [number, number][]) => {
+          let lo = Infinity, hi = -Infinity
+          for (const q of pts) {
+            const d = q[0] * nx + q[1] * ny
+            if (d < lo) lo = d
+            if (d > hi) hi = d
+          }
+          return [lo, hi]
+        }
+        const [aLo, aHi] = span(a)
+        const [bLo, bHi] = span(b)
+        if (aHi <= bLo + 1e-6 || bHi <= aLo + 1e-6) return true
+      }
+    }
+    return false
+  }
+
+  const clashes: string[] = []
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (!separated(boxes[i].hull, boxes[j].hull)) clashes.push(`${boxes[i].name} / ${boxes[j].name}`)
+    }
+  }
+  check('no two 3MF objects overlap', clashes.length === 0, clashes.slice(0, 4).join(', '))
+  check('3MF objects sit in the positive quadrant',
+    boxes.every((b) => b.lo[0] > -1 && b.lo[1] > -1),
+    boxes.filter((b) => b.lo[0] <= -1 || b.lo[1] <= -1).map((b) => b.name).join(', '))
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')
