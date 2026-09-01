@@ -4,8 +4,18 @@ import type { Displacer } from './facePattern.ts'
 import { MeshBuilder, type RawMesh } from './mesh.ts'
 import { triangulatePolygon } from './triangulate.ts'
 
-/** Profile points below this height are left untouched so the first layer stays flat. */
+/** Profile points below this height are left untouched so the back face stays flat. */
 const FLAT_BASE_MM = 0.6
+/**
+ * Width of the undisturbed margin along the outer edge of the moulding.
+ *
+ * Straight rails are printed lying on that outer face, so it is the first
+ * layer. The arris where it meets the decorative face has a normal that points
+ * partly forward, so relief applied there drags the whole face off the bed and
+ * leaves the rail balancing on one edge. Fading the relief out before the edge
+ * keeps the contact patch flat and full width.
+ */
+const OUTER_MARGIN_MM = 1.2
 
 export interface SweepInput {
   /** Path vertices for this run, in order. */
@@ -41,6 +51,15 @@ export function sweep(input: SweepInput): RawMesh {
   const normals = profileNormals(profile)
   const builder = new MeshBuilder()
 
+  // The outer edge is the bed when a rail prints on its side; keep it clean.
+  const uMax = profile.reduce((m, p) => Math.max(m, p.u), 0)
+  const margin = Math.min(OUTER_MARGIN_MM, uMax * 0.12)
+  const edgeFade = (u: number) => {
+    if (margin <= 0) return 1
+    const t = Math.min(1, Math.max(0, (uMax - u) / margin))
+    return t * t * (3 - 2 * t)
+  }
+
   // grid[j][i] — one vertex per (path vertex, profile point) pair.
   const grid: number[][] = []
   for (let j = 0; j < nPath; j++) {
@@ -58,7 +77,7 @@ export function sweep(input: SweepInput): RawMesh {
         const [nu, nv] = normals[i]
         // Only surfaces that face forward carry relief, and the amount fades
         // smoothly to nothing as a surface turns to face sideways or backward.
-        const mask = Math.max(0, nv)
+        const mask = Math.max(0, nv) * edgeFade(u)
         if (mask > 0) {
           // Cut *into* the face, so nominal outer dimensions stay exact.
           const d = -displacer(s, u) * mask

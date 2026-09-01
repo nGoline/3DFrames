@@ -10,6 +10,7 @@ import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.t
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
 import { clipFit } from '../src/core/geometry/accessories.ts'
+import { FACE_PATTERNS } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
 import { PROFILE_PRESETS } from '../src/core/profiles.ts'
@@ -521,6 +522,27 @@ console.log('')
       `starts at z ${key.bounds.min[2].toFixed(2)}`)
   }
   check('snap joints leave nothing loose', r.parts.every((p) => p.kind !== 'snapkit'))
+
+  // The face it lies on is the first layer, so it has to stay flat and full
+  // width whatever relief is applied to the decorative face.
+  for (const pattern of FACE_PATTERNS.map((f) => f.id)) {
+    const textured = await buildFrame(
+      { ...rect, face: { pattern, depth: 1.2, scale: 6, angle: 20 } },
+      deps,
+    )
+    const rail = textured.parts.find((q) => q.kind === 'frame')!
+    const pos = orientForPrint(rail)
+    let lo = Infinity, hi = -Infinity
+    for (let i = 0; i < pos.length; i += 3) {
+      if (pos[i + 2] < 1e-4) {
+        if (pos[i + 1] < lo) lo = pos[i + 1]
+        if (pos[i + 1] > hi) hi = pos[i + 1]
+      }
+    }
+    check(`${pattern}: the rail sits on its full outer face`,
+      Math.abs(hi - lo - rect.profile.depth) < 0.05,
+      `contact patch ${(hi - lo).toFixed(2)} of ${rect.profile.depth} mm`)
+  }
 
   // A snap is only a snap if the barb genuinely interferes with the socket
   // throat — and only assemblable if that interference is small enough for the

@@ -169,13 +169,20 @@ export function SpecPanel() {
         />
         {config.face.pattern !== 'none' ? (
           <>
-            <Slider label="Relief depth" value={config.face.depth} min={0.1} max={2} step={0.05}
+            <p className="hint">
+              The pattern is cut into the front of the moulding as real relief, so it survives
+              into the print. It stops short of the outer edge, which is the face the rail is
+              printed on.
+            </p>
+            <Slider label="How deep it is cut" value={config.face.depth} min={0.1} max={2} step={0.05}
               onChange={(depth) => store.setFace({ depth })}
-              hint="Cut into the face, so the frame keeps its nominal size. 0.4–0.8 mm reads well at a 0.2 mm layer height." />
-            <Slider label="Feature size" value={config.face.scale} min={1} max={30} step={0.5}
-              onChange={(scale) => store.setFace({ scale })} />
-            <Slider label="Angle" value={config.face.angle} min={0} max={90} step={1} suffix="°"
-              onChange={(angle) => store.setFace({ angle })} />
+              hint="Distance from the high points to the low ones. Cut inward, so the frame keeps its stated size. 0.4–0.8 mm reads clearly at a 0.2 mm layer height." />
+            <Slider label="Spacing between features" value={config.face.scale} min={1} max={30} step={0.5}
+              onChange={(scale) => store.setFace({ scale })}
+              hint="How far apart the grain lines, flutes or weave sit. Smaller is finer and takes a lower layer height to print well." />
+            <Slider label="Pattern angle" value={config.face.angle} min={0} max={90} step={1} suffix="°"
+              onChange={(angle) => store.setFace({ angle })}
+              hint="Turns the pattern across the face. 0° runs it along the moulding." />
           </>
         ) : null}
       </Row>
