@@ -79,7 +79,7 @@ import { encodeBundle } from '../src/core/export/bundle.ts'
 import { weldVertices } from '../src/core/export/weld.ts'
 import { fitsOnPlate, minAreaRect } from '../src/core/geometry/packing.ts'
 import { layoutOnPlate } from '../src/ui/plateLayout.ts'
-import { orientForPrint } from '../src/core/print.ts'
+import { determinant, orientForPrint } from '../src/core/print.ts'
 import type { FrameConfig } from '../src/core/types.ts'
 
 const nodeFont = (id: string) => {
@@ -90,7 +90,25 @@ const deps = { kernel: wasm, loadFont: nodeFont }
 
 function partsAreSolid(label: string, result: Awaited<ReturnType<typeof buildFrame>>) {
   let bad: string[] = []
+  const mirrored: string[] = []
+  const inverted: string[] = []
   for (const part of result.parts) {
+    // The exporters ship print orientation, so that is what has to be valid.
+    // A reflected transform mirrors the part and turns every face inward.
+    const rotation = [
+      part.print[0], part.print[1], part.print[2],
+      part.print[4], part.print[5], part.print[6],
+      part.print[8], part.print[9], part.print[10],
+    ]
+    if (determinant(rotation) <= 0) mirrored.push(part.name)
+    const printed = weldVertices(orientForPrint(part))
+    try {
+      const m = Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: printed.vertices, triVerts: printed.indices }))
+      if (m.status() !== 'NoError' || m.volume() <= 0) inverted.push(`${part.name}: ${m.status()} vol=${m.volume().toFixed(1)}`)
+    } catch (e) {
+      inverted.push(`${part.name}: ${(e as Error).message}`)
+    }
+
     const soup = part.positions
     if (soup.length === 0) { bad.push(`${part.name}: empty`); continue }
     // Re-import each part exactly as the exporters see it: welded back into an
@@ -105,6 +123,8 @@ function partsAreSolid(label: string, result: Awaited<ReturnType<typeof buildFra
     }
   }
   check(`${label}: ${result.parts.length} parts all solid`, bad.length === 0, bad.join('; '))
+  check(`${label}: no part is exported mirrored`, mirrored.length === 0, mirrored.join(', '))
+  check(`${label}: every part is solid as exported`, inverted.length === 0, inverted.join('; '))
   return result
 }
 

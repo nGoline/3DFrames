@@ -19,6 +19,9 @@ import { transformMesh } from './geometry/primitives.ts'
 /**
  * Rotation that lays a straight rail on its outer face: the rail's length runs
  * along X, its outward direction points down, and the frame's Z becomes Y.
+ *
+ * `tangent` must be wound so that tangent × outward = +Z. Feed it the other way
+ * round and this is a reflection, not a rotation — see `determinant`.
  */
 export function onOuterFace(
   tangent: [number, number],
@@ -29,6 +32,19 @@ export function onOuterFace(
     0, 0, 1,
     -outward[0], -outward[1], 0,
   ]
+}
+
+/**
+ * Determinant of a 3×3 rotation. Anything negative is a reflection, which would
+ * mirror the part and invert every face — a mirrored rail has its rabbet on the
+ * wrong side and will not assemble.
+ */
+export function determinant(m: number[]): number {
+  return (
+    m[0] * (m[4] * m[8] - m[5] * m[7]) -
+    m[1] * (m[3] * m[8] - m[5] * m[6]) +
+    m[2] * (m[3] * m[7] - m[4] * m[6])
+  )
 }
 
 /** Rotation that stands a prism on its cross-section: X becomes up. */
@@ -61,8 +77,34 @@ export function seat(rotation: number[], positions: Float32Array): Affine {
   ]
 }
 
-/** A part's geometry in its print orientation. */
+/**
+ * A part's geometry in its print orientation.
+ *
+ * If the transform ever turns out to be a reflection, the triangle winding is
+ * reversed to compensate rather than silently exporting an inside-out solid.
+ * Nothing should produce one — but this has been the source of enough bugs to
+ * be worth catching in one place.
+ */
 export function orientForPrint(part: Part): Float32Array {
-  return transformMesh({ vertProperties: part.positions, triVerts: new Uint32Array() }, part.print)
-    .vertProperties
+  const out = transformMesh(
+    { vertProperties: part.positions, triVerts: new Uint32Array() },
+    part.print,
+  ).vertProperties
+
+  const rotation = [
+    part.print[0], part.print[1], part.print[2],
+    part.print[4], part.print[5], part.print[6],
+    part.print[8], part.print[9], part.print[10],
+  ]
+  if (determinant(rotation) < 0) {
+    // Swap two corners of every triangle to restore outward-facing normals.
+    for (let i = 0; i < out.length; i += 9) {
+      for (let k = 0; k < 3; k++) {
+        const a = out[i + k]
+        out[i + k] = out[i + 3 + k]
+        out[i + 3 + k] = a
+      }
+    }
+  }
+  return out
 }

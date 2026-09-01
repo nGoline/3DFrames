@@ -302,7 +302,10 @@ function isStraight(
     const d = frames[j].dir
     if (Math.abs(d[0] - first[0]) > 1e-3 || Math.abs(d[1] - first[1]) > 1e-3) return false
   }
-  return { tangent: [-first[1], first[0]], outward: [first[0], first[1]] }
+  // Wound so that tangent × outward = +Z. The other choice looks equally
+  // natural and is left-handed, which turns the print transform into a
+  // reflection and exports every rail mirrored.
+  return { tangent: [first[1], -first[0]], outward: [first[0], first[1]] }
 }
 
 /** Cheap rejection test so we only run booleans on parts that can actually touch. */
