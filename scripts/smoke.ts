@@ -9,6 +9,7 @@ import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
+import { clipFit } from '../src/core/geometry/accessories.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
 import { PROFILE_PRESETS } from '../src/core/profiles.ts'
@@ -176,7 +177,7 @@ console.log('')
     plate: { x: 220, y: 220, z: 250, smartOrientation: true },
     face: { pattern: 'fluted', depth: 0.6, scale: 5, angle: 0 },
     text: { content: 'Hello World', font: 'playfair', size: 9, style: 'raised', depth: 0.8, placement: 'bottom' },
-    accessories: { easel: true, hanger: true, backer: true },
+    accessories: { clips: true, easel: true, hanger: true, backer: true },
     joint: { style: 'key', tolerance: 0.18 },
   }
   const r = await buildFrame(cfg, deps)
@@ -306,6 +307,7 @@ console.log('')
     ['hexagon', { shape: 'hexagon' }],
     ['octagon, scoop', { shape: 'octagon', profilePreset: 'scoop' }],
     ['circle', { shape: 'circle', interiorHeight: 203.2 }],
+    ['with spring clip slots', { accessories: { clips: true, easel: false, hanger: false, backer: false } }],
     ['poster, split many ways', {
       interiorWidth: 610, interiorHeight: 914,
       plate: { printer: 'bambu-a1-mini', x: 180, y: 180, z: 180, smartOrientation: true },
@@ -335,7 +337,8 @@ console.log('')
     // bound matters as much as the upper one: a kit *larger* than the frame it
     // came from means something is inside out.
     const missing = (frame.volume() - assembled.volume()) / frame.volume()
-    check(`${label}: the kit still reassembles into the frame`, missing >= -1e-4 && missing < 0.02,
+    // What is missing should be nothing but joint clearances and clip slots.
+    check(`${label}: the kit still reassembles into the frame`, missing >= -1e-4 && missing < 0.035,
       `${(missing * 100).toFixed(2)}% of the frame is missing`)
   }
 }
@@ -351,7 +354,7 @@ console.log('')
   const cfg: FrameConfig = {
     ...DEFAULT_CONFIG,
     face: { ...DEFAULT_CONFIG.face, pattern: 'none' },
-    accessories: { easel: true, hanger: true, backer: true },
+    accessories: { clips: true, easel: true, hanger: true, backer: true },
   }
   const r = await buildFrame(cfg, deps)
   const p = cfg.profile
@@ -402,6 +405,61 @@ console.log('')
       stand.bounds.max[1] > -cfg.interiorHeight / 2 - p.width + 4 &&
         stand.bounds.max[1] < -cfg.interiorHeight / 2,
       `top at y ${stand.bounds.max[1].toFixed(1)}`)
+  }
+
+  // A spring clip is only useful if it plugs into its slot and reaches past the
+  // rabbet onto the artwork.
+  const fit = clipFit(p)!
+  check('spring clip slots are proportioned for this moulding', !!fit)
+  const tilt = Math.tan((6 * Math.PI) / 180)
+  check('slot leaves a floor above the back face', fit.z0 - fit.depth * tilt >= 0.5,
+    `${(fit.z0 - fit.depth * tilt).toFixed(2)} mm`)
+  check('slot leaves a roof below the rabbet ceiling', fit.z0 + fit.height <= p.rabbetDepth - 0.4,
+    `${(p.rabbetDepth - fit.z0 - fit.height).toFixed(2)} mm`)
+  check('slot does not reach the outside of the moulding',
+    p.rabbetWidth + fit.depth <= p.width - 1.4,
+    `${(p.width - p.rabbetWidth - fit.depth).toFixed(1)} mm of wall left`)
+
+  // Measured lying flat, since installed the clip is rotated into its slot and
+  // its world-axis extents no longer mean length or thickness.
+  for (const c of named('Spring clip')) {
+    const pos = orientForPrint(c)
+    const lo = [Infinity, Infinity, Infinity]
+    const hi = [-Infinity, -Infinity, -Infinity]
+    for (let i = 0; i < pos.length; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        if (pos[i + k] < lo[k]) lo[k] = pos[i + k]
+        if (pos[i + k] > hi[k]) hi[k] = pos[i + k]
+      }
+    }
+    const size = hi.map((v, k) => v - lo[k])
+    check(`${c.name} is thinner than its slot`, size[2] < fit.height,
+      `${size[2].toFixed(2)} mm in a ${fit.height.toFixed(2)} mm slot`)
+    check(`${c.name} reaches past the rabbet onto the artwork`, size[0] > p.rabbetWidth + fit.depth,
+      `${size[0].toFixed(1)} mm long, rabbet + tang is ${(p.rabbetWidth + fit.depth).toFixed(1)} mm`)
+  }
+  check('there is a clip for every slot', named('Spring clip').length >= 4,
+    `${named('Spring clip').length} clips`)
+
+  // Each clip must sit in its own slot, not pile up at the origin, and must lie
+  // flat again for printing.
+  const clips = named('Spring clip')
+  const stacked = clips.filter((a, i) =>
+    clips.some((b, j) => j > i &&
+      Math.abs(a.bounds.min[0] - b.bounds.min[0]) < 0.01 &&
+      Math.abs(a.bounds.min[1] - b.bounds.min[1]) < 0.01),
+  )
+  check('clips are placed in their slots, not stacked', stacked.length === 0,
+    `${stacked.length} share a position`)
+  for (const c of clips) {
+    const pos = orientForPrint(c)
+    let lo = Infinity, hi = -Infinity
+    for (let i = 2; i < pos.length; i += 3) {
+      if (pos[i] < lo) lo = pos[i]
+      if (pos[i] > hi) hi = pos[i]
+    }
+    check(`${c.name} lies flat to print`, Math.abs(hi - lo - fit.thickness) < 0.05,
+      `stands ${(hi - lo).toFixed(2)} mm, leaf is ${fit.thickness.toFixed(2)} mm thick`)
   }
 
   const hanger = named('Keyhole hanger')[0]

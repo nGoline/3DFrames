@@ -5,7 +5,7 @@ import { createDisplacer } from './geometry/facePattern.ts'
 import { sweep } from './geometry/sweep.ts'
 import { planSplit } from './geometry/split.ts'
 import { buildJoint } from './geometry/joints.ts'
-import { backerFit, backerGroove, buildAccessories, hangerOutline } from './geometry/accessories.ts'
+import { backerFit, backerGroove, buildAccessories, buildClip, clipFit, clipSlots, hangerOutline } from './geometry/accessories.ts'
 import { boundsOf, toTriangleSoup, volumeOf, type RawMesh } from './geometry/mesh.ts'
 import { box } from './geometry/primitives.ts'
 import { fitsOnPlate } from './geometry/packing.ts'
@@ -197,6 +197,25 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
     segments = segments.map((seg) => seg.subtract(groove))
   }
 
+  // Spring clips need a slot each, placed at the middle of every segment so
+  // they never land on a joint. A one-piece frame gets four, evenly spaced.
+  const clip = config.accessories.clips ? clipFit(profileParams) : null
+  if (config.accessories.clips && !clip) {
+    warnings.push('The rabbet is too shallow or the moulding too narrow for spring clips — skipped.')
+  }
+  const clipWhere: number[] = []
+  if (clip) {
+    const spots = plan.single
+      ? [0, 1, 2, 3].map((k) => Math.round((k * path.points.length) / 4))
+      : plan.segments.map((seg) => seg.indices[Math.floor(seg.indices.length / 2)])
+    for (const j of spots) if (!clipWhere.includes(j)) clipWhere.push(j)
+    const slots = clipSlots(ctx, clip, clipWhere, config.joint.tolerance)
+    if (slots) {
+      const cut = toManifold(kernel, slots)
+      segments = segments.map((seg) => (boxesOverlap(seg, cut) ? seg.subtract(cut) : seg))
+    }
+  }
+
 
   // ---- Assemble the parts list -------------------------------------------
   const parts: Part[] = []
@@ -260,6 +279,16 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
     // without a single overhang. Everything else is already a flat slab.
     parts.push(makePart(acc.id, acc.name, acc.kind, acc.mesh, acc.id.startsWith('stand') ? onEnd() : UPRIGHT))
   }
+  if (clip) {
+    clipWhere.forEach((at, i) => {
+      const made = buildClip(ctx, clip, config.joint.tolerance, at)
+      parts.push(makePart(`clip-${i}`, `Spring clip ${i + 1}`, 'accessory', made.mesh, made.print))
+    })
+    notes.push(
+      `${clipWhere.length} spring clips push into slots in the rabbet wall and press the artwork forward. They work with a printed back, with card, or with foamboard.`,
+    )
+  }
+
   const hanger = config.accessories.hanger ? hangerOutline(ctx) : null
   if (config.accessories.hanger && !hanger) {
     warnings.push('The moulding is too narrow for a keyhole hanger — skipped.')

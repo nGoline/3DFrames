@@ -21,7 +21,8 @@ browser and the files never leave your machine.
 - **Nine face textures** cut into the surface as actual relief, so the grain or
   fluting survives into the print rather than being a render trick.
 - **Captions** embossed or engraved into a rail, in any of four bundled faces.
-- **Fittings**: a snap-in backing panel, keyhole hanger, and slotted desk stands.
+- **Fittings**: sprung retaining clips, a snap-in backing panel, keyhole hanger,
+  and slotted desk stands.
 - **Automatic splitting.** Anything larger than your bed is cut into segments at
   the mitres, joined by integrated snap joints — no loose parts and no glue.
 - **Support-free printing.** Straight rails are exported lying on their outer
@@ -87,6 +88,16 @@ the relief, and its shoulder bears on the step if the seam is pulled. A
 butterfly key is offered as an alternative, dropped into a recess cut across the
 seam **from the back**: that matters, because a butterfly is wider than its own
 waist and can only ever be inserted through a face, never edgewise.
+
+**Holding the artwork in.** Spring clips are the way a real frame does it: small
+sprung strips pushed into slots in the rabbet wall, bearing on the back of the
+stack. The slot is cut at a slight tilt, so a dead-flat clip has to bend to sit
+in it — that is where the force comes from, and printing the leaf flat rather
+than pre-bent also runs the layer lines along it, which is the strong direction
+in bending. An S-curved leaf roughly doubles its length, and so drops its
+stiffness, without taking any more room. Unlike a printed backing panel this
+works at any frame size and with any backing, which matters because a panel for
+anything much over 5 × 7 in is wider than a bed.
 
 **Print orientation.** A frame lying face up puts the rabbet ceiling out over
 thin air — a ledge cantilevered right around the aperture. Turning a straight

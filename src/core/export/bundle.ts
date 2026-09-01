@@ -102,6 +102,14 @@ function printingGuide(result: BuildResult, config: FrameConfig, title: string):
       '  the back until its rib clicks into the groove round the rabbet.',
     )
   }
+  if (config.accessories.clips) {
+    lines.push(
+      '  With the artwork and backing in, push a spring clip into each slot in',
+      '  the rabbet wall, leaf first, so the leaf bears on the back of the',
+      '  stack. The slot is tilted, so the clip springs as it goes home — that',
+      '  is what holds the artwork against the front of the rabbet.',
+    )
+  }
   if (config.accessories.hanger) lines.push('  Glue the keyhole hanger centred on the back of the top rail.')
   if (config.accessories.easel) lines.push('  Slide the two desk stands onto the bottom rail.')
 

@@ -216,3 +216,163 @@ function translateZ(mesh: RawMesh, dz: number): RawMesh {
 function translateY(mesh: RawMesh, dy: number): RawMesh {
   return transformMesh(mesh, [1, 0, 0, 0, 0, 1, 0, dy, 0, 0, 1, 0])
 }
+
+/* -------------------------------------------------------------------------
+ * Spring clips
+ *
+ * The way a real frame holds artwork in: small sprung strips pushed into slots
+ * in the rabbet wall, bearing on the back of the stack and pressing it forward
+ * against the rabbet ceiling. Unlike a printed backing panel this works at any
+ * frame size and with any backing material, so it is the option that still
+ * makes sense on a poster frame.
+ *
+ * The slot is tilted a few degrees so a dead-flat clip has to bend to sit in
+ * it — that is where the spring force comes from. Printing the clip flat rather
+ * than pre-bent also puts the layer lines along the leaf, which is the strong
+ * direction in bending.
+ * ---------------------------------------------------------------------- */
+
+/** Tilt of the slot, in degrees: how hard the clip is asked to push. */
+const CLIP_TILT_DEG = 6
+/** Slot length along the rail. */
+const CLIP_SLOT_W = 9
+/** Material left under the slot's lowest corner. */
+const FLOOR_MM = 0.8
+
+export interface ClipFit {
+  thickness: number
+  /** How far the slot reaches into the moulding from the rabbet wall. */
+  depth: number
+  /** Slot height and its position above the back face. */
+  height: number
+  z0: number
+}
+
+/** Slot proportions for a given moulding, or null if there is no room. */
+export function clipFit(profile: ProfileParams): ClipFit | null {
+  const thickness = clamp(profile.rabbetDepth * 0.3, 1, 1.6)
+  const height = thickness + 0.4
+  // The slot must not eat through to the outside of the moulding.
+  const depth = Math.min(6, profile.width - profile.rabbetWidth - 1.5)
+  if (depth < 3) return null
+  // Because the slot is tilted, its far end sits lower than its mouth. Start it
+  // high enough that the low corner still leaves a floor above the back face.
+  const z0 = FLOOR_MM + depth * Math.tan((CLIP_TILT_DEG * Math.PI) / 180)
+  if (z0 + height > profile.rabbetDepth - 0.5) return null
+  return { thickness, depth, height, z0 }
+}
+
+/**
+ * The slots, to be subtracted from the frame. Disjoint boxes, so they can be
+ * handed over as one mesh.
+ */
+export function clipSlots(
+  ctx: AccessoryContext,
+  fit: ClipFit,
+  where: number[],
+  tolerance: number,
+): RawMesh | null {
+  const tilt = Math.tan((CLIP_TILT_DEG * Math.PI) / 180)
+  const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)
+  const h = fit.height + 2 * tolerance
+  const z0 = fit.z0 - tolerance
+
+  let merged: RawMesh | null = null
+  for (const j of where) {
+    const dir = ctx.frames[j].dir
+    // Local (up, outward): the far end of the slot sits lower, so a flat clip
+    // pushed into it points forward and has to be sprung back by the artwork.
+    const poly: Vec2[] = [
+      [z0, 0],
+      [z0 - fit.depth * tilt, fit.depth],
+      [z0 + h - fit.depth * tilt, fit.depth],
+      [z0 + h, 0],
+    ]
+    const tangent: [number, number, number] = [-dir[1], dir[0], 0]
+    const m = basisTransform(
+      [0, 0, 1],
+      [dir[0], dir[1], 0],
+      tangent,
+      [
+        wall[j][0] - tangent[0] * (CLIP_SLOT_W / 2),
+        wall[j][1] - tangent[1] * (CLIP_SLOT_W / 2),
+        0,
+      ],
+    )
+    const box = transformMesh(extrudePolygon(poly, CLIP_SLOT_W), m)
+    merged = merged ? concat(merged, box) : box
+  }
+  return merged
+}
+
+/**
+ * One spring clip: a tang that plugs into the slot, an S-curved leaf that gives
+ * it enough length to flex in a small space, and a tip that bears on the back of
+ * the artwork.
+ *
+ * Returned in its installed position — sitting in the slot at `at`, tilted with
+ * it — along with the rotation that lays it flat again for printing, which is
+ * the inverse of the one that put it there.
+ */
+export function buildClip(
+  ctx: AccessoryContext,
+  fit: ClipFit,
+  tolerance: number,
+  at: number,
+): { mesh: RawMesh; print: number[] } {
+  const tangLength = fit.depth - 0.8
+  const tangWidth = CLIP_SLOT_W - 2 * tolerance - 0.2
+  const armLength = ctx.profile.rabbetWidth + 12
+  const armWidth = 4.4
+  const amplitude = 2.6
+  const steps = 24
+
+  // Centre line of the leaf: one full S, which roughly doubles its length and so
+  // drops its stiffness without taking any more room.
+  const centre: Vec2[] = []
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    centre.push([t * armLength, amplitude * Math.sin(t * Math.PI * 2)])
+  }
+  const side = (sign: number): Vec2[] =>
+    centre.map(([x, y], i) => {
+      const prev = centre[Math.max(0, i - 1)]
+      const next = centre[Math.min(centre.length - 1, i + 1)]
+      const dx = next[0] - prev[0]
+      const dy = next[1] - prev[1]
+      const len = Math.hypot(dx, dy) || 1
+      return [x + (sign * (dy / len) * armWidth) / 2, y - (sign * (dx / len) * armWidth) / 2] as Vec2
+    })
+
+  const poly: Vec2[] = [
+    ...side(1),
+    ...side(-1).reverse(),
+    [0, armWidth / 2],
+    [0, tangWidth / 2],
+    [-tangLength, tangWidth / 2],
+    [-tangLength, -tangWidth / 2],
+    [0, -tangWidth / 2],
+  ]
+
+  // Installed frame: local +x runs inward over the artwork (so the tang, at
+  // negative x, goes outward into the slot), +y along the rail, +z the leaf's
+  // thickness. Tilted with the slot so the leaf stands off the artwork.
+  const dir = ctx.frames[at].dir
+  const theta = (CLIP_TILT_DEG * Math.PI) / 180
+  const cos = Math.cos(theta)
+  const sin = Math.sin(theta)
+  const ax: [number, number, number] = [-dir[0] * cos, -dir[1] * cos, sin]
+  const ay: [number, number, number] = [dir[1], -dir[0], 0]
+  const az: [number, number, number] = [dir[0] * sin, dir[1] * sin, cos]
+
+  const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)[at]
+  const m = basisTransform(ax, ay, az, [wall[0], wall[1], fit.z0 + tolerance])
+
+  return {
+    mesh: transformMesh(extrudePolygon(poly, fit.thickness), m),
+    // Rows of the inverse: an orthonormal basis transposed.
+    print: [...ax, ...ay, ...az],
+  }
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))

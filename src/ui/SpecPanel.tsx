@@ -219,6 +219,8 @@ export function SpecPanel() {
       </Row>
 
       <Row id="fittings" open={open} onToggle={toggle} label="Fittings" value={fittingsSummary(config.accessories)}>
+        <Switch checked={config.accessories.clips} onChange={(v) => store.setAccessory('clips', v)}
+          title="Spring clips" note="Sprung strips that push into slots in the rabbet and press the artwork forward. Works with any backing — printed, card or foamboard — and at any frame size. Adds the slots to the frame." />
         <Switch checked={config.accessories.backer} onChange={(v) => store.setAccessory('backer', v)}
           title="Snap-in back" note="A panel that presses in from behind and clicks into a groove round the rabbet, holding the artwork forward. Adds the groove to the frame." />
         <Switch checked={config.accessories.hanger} onChange={(v) => store.setAccessory('hanger', v)}
@@ -279,8 +281,9 @@ function Row({
   )
 }
 
-function fittingsSummary(a: { easel: boolean; hanger: boolean; backer: boolean }): string {
+function fittingsSummary(a: { clips: boolean; easel: boolean; hanger: boolean; backer: boolean }): string {
   const on = [
+    a.clips && 'spring clips',
     a.backer && 'snap-in back',
     a.hanger && 'hanger',
     a.easel && 'desk stands',

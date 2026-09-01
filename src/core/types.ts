@@ -122,6 +122,12 @@ export interface TextConfig {
 }
 
 export interface Accessories {
+  /**
+   * Sprung clips that plug into slots in the rabbet wall and press the artwork
+   * forward. Adds the slots to the frame. Works with any backing — printed,
+   * card or foamboard — and at any frame size.
+   */
+  clips: boolean
   /** A printed easel leg that clips into the back for desk display. */
   easel: boolean
   /** A keyhole hanger plate for the wall. */

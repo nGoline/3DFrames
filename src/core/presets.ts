@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG: FrameConfig = {
   profile: { width: 18, depth: 12, rabbetWidth: 6, rabbetDepth: 5, relief: 0.75 },
   face: { pattern: 'oak', depth: 0.5, scale: 6, angle: 0 },
   text: { content: '', font: 'inter', size: 8, style: 'raised', depth: 0.8, placement: 'bottom' },
-  accessories: { easel: false, hanger: false, backer: false },
+  accessories: { clips: true, easel: false, hanger: false, backer: false },
   joint: { style: 'snap', tolerance: 0.18 },
   quality: 1,
 }
