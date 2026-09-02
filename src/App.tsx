@@ -20,7 +20,8 @@ const KINDS: { id: Part['kind']; label: string; color: string }[] = [
 ]
 
 export default function App() {
-  const { config, preview, result, stale, status, error, visible, toggleVisible, generate } = useFrameStore()
+  const { config, preview, result, stale, status, error, visible, toggleVisible, generate, testPiece } =
+    useFrameStore()
   const [mode, setMode] = useState<ViewMode>('assembled')
   const [fitToken, setFit] = useState(0)
   const [showDownloads, setShowDownloads] = useState(false)
@@ -159,6 +160,15 @@ export default function App() {
           ) : null}
           <div className="rail-spacer" />
           {stale && result ? <span className="stale-dot" title="The configuration has changed since this was generated" /> : null}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={testPiece}
+            disabled={status === 'working'}
+            title="One corner of this frame, both joints and a clip — about 20 minutes, so you can check the fit before committing to the whole thing"
+          >
+            Test piece
+          </button>
           <button type="button" className="btn btn-primary" onClick={generate} disabled={status === 'working'}>
             {status === 'working' ? 'Generating' : result && stale ? 'Regenerate' : 'Generate'}
           </button>

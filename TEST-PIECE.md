@@ -3,7 +3,10 @@
 `test-piece.3mf` — one corner of the frame, at full size, in both joint styles.
 About 22 cm³. Print it before committing an evening to a whole frame.
 
-Regenerate it for a different moulding with:
+In the app there is a **Test piece** button beside Generate — it builds this for
+whatever you have configured, without generating the whole frame first.
+
+From the command line, regenerate it with:
 
 ```bash
 npm run coupon                                  # 18 × 14 mm classic, 4.5 mm artwork

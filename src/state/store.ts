@@ -3,6 +3,9 @@ import type { BuildResult, FrameConfig } from '../core/types.ts'
 import { DEFAULT_CONFIG } from '../core/presets.ts'
 import { configFrom, type Design } from '../core/design.ts'
 import { buildFrame } from '../core/frame.ts'
+import { buildCoupon } from '../core/coupon.ts'
+import { encode3mf } from '../core/export/threemf.ts'
+import { download } from '../core/export/download.ts'
 import { loadManifold } from '../core/manifoldLoader.ts'
 import { loadFont } from '../fontLoader.ts'
 import { buildOpeningPath, miterFrames, pathLengths } from '../core/shapes.ts'
@@ -39,6 +42,8 @@ interface FrameStore {
   /** Apply a saved design, keeping the printer already selected. */
   load: (design: Design) => void
   generate: () => Promise<void>
+  /** Build and download the test piece for the current design. */
+  testPiece: () => Promise<void>
 }
 
 /**
@@ -114,6 +119,31 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
 
   // The build plate belongs to the machine, not the design, so it survives.
   load: (design) => set({ ...withPreview(configFrom(design, get().config.plate)), result: null }),
+
+  /**
+   * A corner of the current design, downloadable without generating the whole
+   * frame first — which is the point of it. Checking the fit should not require
+   * committing to the print you are checking.
+   */
+  testPiece: async () => {
+    set({ status: 'working', error: null })
+    try {
+      const kernel = await loadManifold()
+      const config = get().config
+      const coupon = await buildCoupon(config, { kernel, loadFont })
+      download(
+        encode3mf(coupon.parts, '3DFrames test piece', config.plate),
+        'test-piece.3mf',
+        'model/3mf',
+      )
+      set({ status: get().result ? 'ready' : 'idle' })
+    } catch (error) {
+      set({
+        status: 'error',
+        error: error instanceof Error ? error.message : 'The test piece could not be built.',
+      })
+    }
+  },
 
   generate: async () => {
     set({ status: 'working', error: null })
