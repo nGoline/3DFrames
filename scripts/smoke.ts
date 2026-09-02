@@ -153,6 +153,7 @@ import { readFileSync } from 'node:fs'
 import opentype from 'opentype.js'
 import { buildFrame } from '../src/core/frame.ts'
 import { DEFAULT_CONFIG, PRINTERS, SIZE_PRESETS } from '../src/core/presets.ts'
+import { configFrom, decodeDesign, designOf, encodeDesign, reviveDesign } from '../src/core/design.ts'
 import { ARTWORK_CLEARANCE_MM, holdsArtwork, sightOf, sightSize } from '../src/core/sizing.ts'
 import { encodeStl, encodeCombinedStl } from '../src/core/export/stl.ts'
 import { encode3mf } from '../src/core/export/threemf.ts'
@@ -825,6 +826,67 @@ console.log('')
     `outer ${r.outerSize.map((v) => v.toFixed(1)).join(' × ')}, expected ${expected.map((v) => v.toFixed(1)).join(' × ')}`)
   check('a 200 × 250 print is held by a 200.2 × 250.2 interior',
     holdsArtwork(200.2, cfg.profile.rabbetWidth, 200) && holdsArtwork(250.2, cfg.profile.rabbetWidth, 250))
+}
+
+
+// ---------------------------------------------------------------------------
+// Saved designs.
+//
+// The one that matters is forward compatibility: a design saved today has to
+// open after new options are added, taking the defaults for anything it has
+// never heard of. Everything else is a round trip.
+// ---------------------------------------------------------------------------
+{
+  const design = designOf({
+    ...DEFAULT_CONFIG,
+    shape: 'hexagon',
+    unit: 'mm',
+    interiorWidth: 200.2,
+    interiorHeight: 250.2,
+    artwork: { thickness: 4.5 },
+    profilePreset: 'crown',
+    profile: { width: 24, depth: 16, rabbetWidth: 7, rabbetDepth: 9, relief: 0.4 },
+    face: { pattern: 'walnut', depth: 0.7, scale: 8, angle: 25 },
+    text: { content: 'Lisbon 2025', font: 'playfair', size: 9, style: 'engraved', depth: 0.7, placement: 'top' },
+    accessories: { clips: true, easel: true, hanger: false, backer: true },
+    joint: { style: 'key', tolerance: 0.22 },
+    quality: 2,
+  })
+
+  const round = decodeDesign(encodeDesign(design))
+  check('a design survives the round trip through a link',
+    JSON.stringify(round) === JSON.stringify(design),
+    JSON.stringify(round) === JSON.stringify(design) ? '' : 'differs after decoding')
+
+  const link = encodeDesign(design)
+  check('the link is short enough to paste', link.length < 700, `${link.length} characters`)
+  check('the link is URL safe', /^[A-Za-z0-9_-]+$/.test(link))
+
+  // The plate is the machine's, not the design's — sharing must not move it.
+  check('a design carries no build plate', !('plate' in (design as Record<string, unknown>)))
+
+  // A design saved before half these options existed.
+  const old = reviveDesign({ shape: 'oval', interiorWidth: 150, profile: { width: 22 } })
+  check('an older design still opens', old.shape === 'oval' && old.interiorWidth === 150 &&
+    old.profile.width === 22, JSON.stringify(old.profile))
+  check('and takes defaults for what it never had',
+    old.artwork.thickness === DEFAULT_CONFIG.artwork.thickness &&
+      old.joint.style === DEFAULT_CONFIG.joint.style &&
+      old.interiorHeight === DEFAULT_CONFIG.interiorHeight)
+
+  // Corrupted or hostile input must not reach the geometry.
+  const junk = reviveDesign({ shape: 'trapezoid', interiorWidth: 'wide', profile: { depth: null }, quality: 99 })
+  check('nonsense is replaced with defaults, not passed through',
+    junk.shape === DEFAULT_CONFIG.shape &&
+      junk.interiorWidth === DEFAULT_CONFIG.interiorWidth &&
+      junk.profile.depth === DEFAULT_CONFIG.profile.depth &&
+      junk.quality === DEFAULT_CONFIG.quality)
+  check('a truncated link decodes to nothing rather than throwing',
+    decodeDesign(link.slice(0, 20)) === null && decodeDesign('not-a-design') === null)
+
+  // And a revived design still builds.
+  const built = await buildFrame({ ...configFrom(round!, DEFAULT_CONFIG.plate) }, deps)
+  check('a design loaded from a link still builds', built.parts.length > 0, `${built.parts.length} parts`)
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

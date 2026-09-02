@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { BuildResult, FrameConfig } from '../core/types.ts'
 import { DEFAULT_CONFIG } from '../core/presets.ts'
+import { configFrom, type Design } from '../core/design.ts'
 import { buildFrame } from '../core/frame.ts'
 import { loadManifold } from '../core/manifoldLoader.ts'
 import { loadFont } from '../fontLoader.ts'
@@ -35,6 +36,8 @@ interface FrameStore {
   setPlate: (patch: Partial<FrameConfig['plate']>) => void
   setAccessory: (key: keyof FrameConfig['accessories'], value: boolean) => void
   toggleVisible: (kind: string) => void
+  /** Apply a saved design, keeping the printer already selected. */
+  load: (design: Design) => void
   generate: () => Promise<void>
 }
 
@@ -108,6 +111,9 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
     set(withPreview({ ...get().config, accessories: { ...get().config.accessories, [key]: value } })),
 
   toggleVisible: (kind) => set({ visible: { ...get().visible, [kind]: !get().visible[kind] } }),
+
+  // The build plate belongs to the machine, not the design, so it survives.
+  load: (design) => set({ ...withPreview(configFrom(design, get().config.plate)), result: null }),
 
   generate: async () => {
     set({ status: 'working', error: null })

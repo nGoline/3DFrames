@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useFrameStore } from './state/store.ts'
 import { SpecPanel } from './ui/SpecPanel.tsx'
+import { Designs } from './ui/Designs.tsx'
+import { decodeDesign } from './core/design.ts'
 import { Viewport, type ViewMode } from './ui/Viewport.tsx'
 import { layoutOnPlate } from './core/plateLayout.ts'
 import { formatSize } from './core/units.ts'
@@ -23,6 +25,7 @@ export default function App() {
   const [fitToken, setFit] = useState(0)
   const [showDownloads, setShowDownloads] = useState(false)
   const [theme, setTheme] = useTheme()
+  useSharedDesign()
 
   const shown = useMemo(
     () => result?.parts.filter((p) => visible[p.kind]) ?? null,
@@ -48,6 +51,7 @@ export default function App() {
         <p className="tagline">
           A picture frame for any artwork, printable on <b>any bed</b>. Free, open source, and entirely in your browser.
         </p>
+        <Designs />
         <button
           type="button"
           className="theme-toggle"
@@ -172,6 +176,22 @@ export default function App() {
       </main>
     </div>
   )
+}
+
+/**
+ * Open a shared design if the URL carries one, then drop it from the address
+ * bar — once you start editing, a link describing the design you arrived with
+ * would be describing something that is no longer on screen.
+ */
+function useSharedDesign() {
+  const load = useFrameStore((s) => s.load)
+  useEffect(() => {
+    const match = /[#&]d=([^&]+)/.exec(location.hash)
+    if (!match) return
+    const design = decodeDesign(match[1])
+    if (design) load(design)
+    history.replaceState(null, '', location.pathname + location.search)
+  }, [load])
 }
 
 /** Remembers the reader's choice; falls back to the system preference. */

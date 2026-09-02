@@ -1,8 +1,13 @@
 /** Hand a generated file to the browser's download machinery. */
-export function download(data: ArrayBuffer | Uint8Array, filename: string, mime: string): void {
+export function download(data: ArrayBuffer | Uint8Array | string, filename: string, mime: string): void {
   // Copy into a plain ArrayBuffer: fflate hands back views whose backing buffer
   // TypeScript can no longer prove is not shared, and Blob only takes the former.
-  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+  const bytes =
+    typeof data === 'string'
+      ? new TextEncoder().encode(data)
+      : data instanceof Uint8Array
+        ? data
+        : new Uint8Array(data)
   const buffer = new ArrayBuffer(bytes.byteLength)
   new Uint8Array(buffer).set(bytes)
 

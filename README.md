@@ -27,6 +27,8 @@ browser and the files never leave your machine.
   the mitres, joined by integrated snap joints — no loose parts and no glue.
 - **Support-free printing.** Straight rails are exported lying on their outer
   face, which is the orientation in which nothing overhangs.
+- **Saved designs**, kept in your browser, shareable as a link, and exportable to
+  a file so they outlive it.
 - **Exports** to per-part STL, a combined STL, a colour-coded 3MF at true scale,
   or a ZIP with all of it plus a printing and assembly guide.
 
@@ -111,6 +113,28 @@ line), so they stay face up and are flagged as needing support.
 self-intersection-free result. That is the difference between an STL a slicer
 accepts and one it silently mangles.
 
+## Saving a design
+
+Three ways out, for three different needs.
+
+**The list** keeps what you are working on to hand. It lives in your browser's
+storage, so it is per-browser and lasts exactly as long as the site data does.
+
+**A link** carries one design — the whole thing, deflated and base64url'd into
+about 400 characters. It deliberately does *not* carry the build plate: that is
+a property of your printer, not of the frame you drew, so opening someone's
+design will not switch your machine out from under you.
+
+**The export** writes every saved design to a JSON file. It is the only one of
+the three that survives clearing your history, so it is the one to use if a
+design is worth keeping.
+
+Stored designs are merged over the current defaults rather than used as they
+stand, so one saved today still opens after new options are added — it simply
+takes the defaults for anything it has never heard of. Every field is checked
+for the type it should be on the way in, so a truncated file cannot put a string
+where the geometry expects a number and fail somewhere far away.
+
 ## Running it locally
 
 ```bash
@@ -155,6 +179,7 @@ src/core/           geometry, no DOM and no browser APIs
     joints.ts       snap tenons, sockets and butterfly keys
     facePattern.ts  surface relief as a height field
     packing.ts      convex hull, min-area rect, rect-in-rect fit
+  design.ts         saving, sharing and reviving a design
   print.ts          per-part print orientation
   export/           STL, 3MF, ZIP bundle
 src/ui/             React panel, three.js viewport, bed arrangement

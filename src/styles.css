@@ -173,6 +173,104 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .theme-toggle:hover { color: var(--blue-ink); border-color: var(--blue); }
 
+/* --- Saved designs -------------------------------------------------------- */
+
+.designs { position: relative; }
+
+.designs-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 340px;
+  padding: 12px;
+  background: var(--film);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 36px -18px rgba(0, 0, 0, 0.5);
+}
+
+.designs-save { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.designs-save .btn { font-size: 13px; padding: 7px 13px; }
+
+.designs-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--rule);
+}
+.designs-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.designs-open {
+  display: grid;
+  gap: 1px;
+  padding: 2px 4px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.designs-open:hover { background: var(--film-2); }
+.designs-open b { font-size: 12.5px; font-weight: 600; }
+.designs-open small {
+  color: var(--lead-4);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.designs-rename { font-size: 12.5px; }
+
+.designs-actions { display: flex; gap: 2px; }
+.designs-actions button {
+  padding: 3px 6px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--lead-4);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.designs-actions button:hover { background: var(--film-2); color: var(--blue-ink); }
+
+.designs-empty, .designs-note {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--lead-4);
+}
+.designs-note { color: var(--blue-ink); }
+
+.designs-foot {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+}
+.designs-foot button {
+  padding: 4px 7px;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  color: var(--lead-6);
+  font-size: 11px;
+  cursor: pointer;
+}
+.designs-foot button:hover { border-color: var(--blue); color: var(--blue-ink); }
+
 /* --- Spec panel ----------------------------------------------------------- */
 
 .spec {
