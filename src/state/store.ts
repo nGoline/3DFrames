@@ -6,6 +6,7 @@ import { loadManifold } from '../core/manifoldLoader.ts'
 import { loadFont } from '../fontLoader.ts'
 import { buildOpeningPath, miterFrames, pathLengths } from '../core/shapes.ts'
 import { buildProfile, normaliseParams } from '../core/profiles.ts'
+import { minimumRabbetDepth } from '../core/geometry/accessories.ts'
 import { createDisplacer } from '../core/geometry/facePattern.ts'
 import { sweep } from '../core/geometry/sweep.ts'
 import { toTriangleSoup } from '../core/geometry/mesh.ts'
@@ -27,6 +28,7 @@ interface FrameStore {
 
   set: (patch: Partial<FrameConfig>) => void
   setProfile: (patch: Partial<FrameConfig['profile']>) => void
+  setArtwork: (thickness: number) => void
   setFace: (patch: Partial<FrameConfig['face']>) => void
   setText: (patch: Partial<FrameConfig['text']>) => void
   setPlate: (patch: Partial<FrameConfig['plate']>) => void
@@ -78,6 +80,21 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
   set: (patch) => set(withPreview({ ...get().config, ...patch })),
   setProfile: (patch) =>
     set(withPreview({ ...get().config, profile: { ...get().config.profile, ...patch } })),
+
+  /**
+   * Changing what goes in the frame carries the rabbet with it. Leaving the
+   * rabbet where it was would silently invalidate the number just typed — the
+   * clip would have nowhere to sit, which is the failure this exists to stop.
+   */
+  setArtwork: (thickness) => {
+    const config = get().config
+    const profile = { ...config.profile, rabbetDepth: config.profile.rabbetDepth }
+    const needed = minimumRabbetDepth(normaliseParams(profile), thickness)
+    const rabbetDepth = Math.max(profile.rabbetDepth, Math.ceil(needed * 2) / 2)
+    // The moulding has to stay thick enough to have that rabbet cut into it.
+    const depth = Math.max(profile.depth, Math.ceil((rabbetDepth + 1.5) * 2) / 2)
+    set(withPreview({ ...config, artwork: { thickness }, profile: { ...profile, rabbetDepth, depth } }))
+  },
   setFace: (patch) => set(withPreview({ ...get().config, face: { ...get().config.face, ...patch } })),
   setText: (patch) => set(withPreview({ ...get().config, text: { ...get().config.text, ...patch } })),
   setPlate: (patch) => set(withPreview({ ...get().config, plate: { ...get().config.plate, ...patch } })),

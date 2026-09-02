@@ -145,8 +145,18 @@ export interface JointConfig {
   tolerance: number
 }
 
+export interface Artwork {
+  /**
+   * Everything that goes in the rabbet, front to back, added up: the print,
+   * any mount board, glazing, and the backing. This is the number the rabbet
+   * and the retaining clips are sized around.
+   */
+  thickness: number
+}
+
 export interface FrameConfig {
   unit: Unit
+  artwork: Artwork
   plate: BuildPlate
   shape: FrameShape
   /** Interior aperture width (mm). */

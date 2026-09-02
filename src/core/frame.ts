@@ -5,7 +5,7 @@ import { createDisplacer } from './geometry/facePattern.ts'
 import { sweep } from './geometry/sweep.ts'
 import { planSplit } from './geometry/split.ts'
 import { buildJoint } from './geometry/joints.ts'
-import { backerFit, backerGroove, buildAccessories, buildClip, clipFit, clipSlots, hangerOutline } from './geometry/accessories.ts'
+import { backerFit, backerGroove, buildAccessories, buildClip, clipFit, clipSlots, hangerOutline, minimumRabbetDepth } from './geometry/accessories.ts'
 import { boundsOf, toTriangleSoup, volumeOf, type RawMesh } from './geometry/mesh.ts'
 import { box } from './geometry/primitives.ts'
 import { fitsOnPlate } from './geometry/packing.ts'
@@ -199,9 +199,20 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
 
   // Spring clips need a slot each, placed at the middle of every segment so
   // they never land on a joint. A one-piece frame gets four, evenly spaced.
-  const clip = config.accessories.clips ? clipFit(profileParams) : null
+  const artwork = Math.max(0, config.artwork.thickness)
+  const clip = config.accessories.clips ? clipFit(profileParams, artwork) : null
   if (config.accessories.clips && !clip) {
-    warnings.push('The rabbet is too shallow or the moulding too narrow for spring clips — skipped.')
+    const needed = minimumRabbetDepth(profileParams, artwork)
+    warnings.push(
+      needed > profileParams.rabbetDepth
+        ? `The rabbet is ${profileParams.rabbetDepth.toFixed(1)} mm deep, which cannot hold ${artwork.toFixed(1)} mm of artwork and leave room for a clip behind it. Deepen it to at least ${needed.toFixed(1)} mm.`
+        : 'The moulding is too narrow for spring clips — skipped.',
+    )
+  }
+  if (clip) {
+    notes.push(
+      `Clips are set to press ${clip.spring.squeeze.toFixed(1)} mm into ${artwork.toFixed(1)} mm of artwork, about ${clip.spring.force.toFixed(1)} N each.`,
+    )
   }
   const clipWhere: number[] = []
   if (clip) {

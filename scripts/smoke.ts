@@ -9,7 +9,8 @@ import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
-import { clipFit } from '../src/core/geometry/accessories.ts'
+import { clipFit, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
+import { STRESS_CEILING } from '../src/core/spring.ts'
 import { FACE_PATTERNS, createDisplacer } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
@@ -487,13 +488,21 @@ console.log('')
 
   // A spring clip is only useful if it plugs into its slot and reaches past the
   // rabbet onto the artwork.
-  const fit = clipFit(p)!
+  const fit = clipFit(p, cfg.artwork.thickness)!
   check('spring clip slots are proportioned for this moulding', !!fit)
-  const tilt = Math.tan((6 * Math.PI) / 180)
-  check('slot leaves a floor above the back face', fit.z0 - fit.depth * tilt >= 0.5,
-    `${(fit.z0 - fit.depth * tilt).toFixed(2)} mm`)
-  check('slot leaves a roof below the rabbet ceiling', fit.z0 + fit.height <= p.rabbetDepth - 0.4,
-    `${(p.rabbetDepth - fit.z0 - fit.height).toFixed(2)} mm`)
+  check('slot leaves a floor above the back face', fit.z0 - fit.depth * fit.tilt >= 0.5,
+    `${(fit.z0 - fit.depth * fit.tilt).toFixed(2)} mm`)
+  // The tang must sit clear behind the artwork, not inside it.
+  check('slot clears the back of the artwork',
+    fit.z0 + fit.height <= p.rabbetDepth - cfg.artwork.thickness,
+    `slot tops out at ${(fit.z0 + fit.height).toFixed(2)}, artwork backs onto ${(p.rabbetDepth - cfg.artwork.thickness).toFixed(2)}`)
+  // And the leaf must rest proud of the artwork, or it presses on nothing.
+  const rest = fit.z0 + fit.thickness + fit.span * fit.tilt
+  check('leaf rests one squeeze proud of the artwork',
+    Math.abs(rest - (p.rabbetDepth - cfg.artwork.thickness) - fit.spring.squeeze) < 0.05,
+    `rests at ${rest.toFixed(2)}, artwork backs onto ${(p.rabbetDepth - cfg.artwork.thickness).toFixed(2)}, squeeze ${fit.spring.squeeze.toFixed(2)}`)
+  check('leaf stays under the working stress limit', fit.spring.stress <= STRESS_CEILING + 0.01,
+    `${fit.spring.stress.toFixed(1)} MPa`)
   check('slot does not reach the outside of the moulding',
     p.rabbetWidth + fit.depth <= p.width - 1.4,
     `${(p.width - p.rabbetWidth - fit.depth).toFixed(1)} mm of wall left`)
@@ -738,6 +747,48 @@ console.log('')
   check('3MF objects sit in the positive quadrant',
     boxes.every((b) => b.lo[0] > -1 && b.lo[1] > -1),
     boxes.filter((b) => b.lo[0] <= -1 || b.lo[1] <= -1).map((b) => b.name).join(', '))
+}
+
+
+// ---------------------------------------------------------------------------
+// The artwork thickness has to be honoured, not merely accepted. Whatever goes
+// in the frame, the clip must end up behind it, resting a full squeeze proud so
+// that fitting the artwork loads the spring — the failure being guarded against
+// is a clip positioned where the backing already is.
+// ---------------------------------------------------------------------------
+{
+  for (const thickness of [0.3, 1, 2, 3, 4.5, 6, 10]) {
+    const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, rabbetDepth: 6 })
+    const needed = minimumRabbetDepth(probe, thickness)
+    const rabbetDepth = Math.ceil(needed * 2) / 2
+    const params = normaliseParams({
+      ...DEFAULT_CONFIG.profile,
+      depth: rabbetDepth + 2,
+      rabbetDepth,
+    })
+    const fit = clipFit(params, thickness)
+    if (!fit) {
+      check(`${thickness} mm artwork: a clip fits`, false, `no fit at ${rabbetDepth} mm rabbet`)
+      continue
+    }
+    const back = params.rabbetDepth - thickness
+    const rest = fit.z0 + fit.thickness + fit.span * fit.tilt
+    check(`${thickness} mm artwork: clip sits behind it`,
+      fit.z0 + fit.height <= back + 1e-6,
+      `slot tops out at ${(fit.z0 + fit.height).toFixed(2)}, artwork backs onto ${back.toFixed(2)}`)
+    check(`${thickness} mm artwork: leaf presses on it`,
+      Math.abs(rest - back - fit.spring.squeeze) < 0.05,
+      `rests at ${rest.toFixed(2)}, wanted ${(back + fit.spring.squeeze).toFixed(2)}`)
+    check(`${thickness} mm artwork: spring within its stress limit`,
+      fit.spring.stress <= STRESS_CEILING + 0.01, `${fit.spring.stress.toFixed(1)} MPa`)
+  }
+
+  // And the stated minimum has to be honest: one notch under it must not fit.
+  const params = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: 6 })
+  const needed = minimumRabbetDepth(params, 4.5)
+  const tooShallow = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: needed - 0.4 })
+  check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5) === null,
+    `a ${(needed - 0.4).toFixed(1)} mm rabbet was accepted when ${needed.toFixed(1)} mm was claimed`)
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

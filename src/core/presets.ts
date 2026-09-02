@@ -97,12 +97,14 @@ export const SIZE_PRESETS: SizePreset[] = [
 
 export const DEFAULT_CONFIG: FrameConfig = {
   unit: 'in',
+  // A print with a card backing. A wooden back is more like 4.5 mm.
+  artwork: { thickness: 2 },
   plate: { printer: 'bambu-p1-x1', x: 256, y: 256, z: 256, smartOrientation: true },
   shape: 'rectangle',
   interiorWidth: inches(8),
   interiorHeight: inches(10),
   profilePreset: 'classic',
-  profile: { width: 18, depth: 12, rabbetWidth: 6, rabbetDepth: 5, relief: 0.75 },
+  profile: { width: 18, depth: 14, rabbetWidth: 6, rabbetDepth: 6.5, relief: 0.75 },
   face: { pattern: 'oak', depth: 0.5, scale: 6, angle: 0 },
   text: { content: '', font: 'inter', size: 8, style: 'raised', depth: 0.8, placement: 'bottom' },
   accessories: { clips: true, easel: false, hanger: false, backer: false },

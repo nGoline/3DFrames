@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useFrameStore } from '../state/store.ts'
 import { PRINTERS, SIZE_PRESETS, printerName, printersByBrand } from '../core/presets.ts'
 import { PROFILE_PRESETS, buildProfile, normaliseParams } from '../core/profiles.ts'
+import { clipFit, minimumRabbetDepth } from '../core/geometry/accessories.ts'
 import { FRAME_SHAPES } from '../core/shapes.ts'
 import { FACE_PATTERNS } from '../core/geometry/facePattern.ts'
 import { FONTS } from '../core/geometry/text.ts'
@@ -24,6 +25,9 @@ export function SpecPanel() {
   const profile = buildProfile(config.profilePreset, params, config.quality)
   const presetLabel = PROFILE_PRESETS.find((p) => p.id === config.profilePreset)?.label ?? 'Custom'
   const printer = PRINTERS.find((p) => p.id === config.plate.printer)
+  const artwork = Math.max(0, config.artwork.thickness)
+  const clip = config.accessories.clips ? clipFit(params, artwork) : null
+  const minRabbet = minimumRabbetDepth(params, artwork)
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100
@@ -34,7 +38,15 @@ export function SpecPanel() {
         <p className="eyebrow">Specification</p>
       </div>
 
-      <SectionDrawing profile={profile} params={params} unit={config.unit} presetLabel={presetLabel} />
+      <SectionDrawing
+        profile={profile}
+        params={params}
+        presetLabel={presetLabel}
+        artwork={artwork}
+        clip={clip}
+        minRabbet={minRabbet}
+        clipsWanted={config.accessories.clips}
+      />
 
       <Row id="printer" open={open} onToggle={toggle} label="Printer"
         value={`${printer && printer.id !== 'custom' ? printerName(printer) : 'Custom'} · ${config.plate.x} × ${config.plate.y} mm`}>
@@ -133,6 +145,32 @@ export function SpecPanel() {
         </Field>
       </Row>
 
+      <Row id="artwork" open={open} onToggle={toggle} label="Artwork"
+        value={`${Math.round(artwork * 10) / 10} mm thick`}>
+        <Slider label="Total thickness" value={config.artwork.thickness} min={0.2} max={25} step={0.1}
+          onChange={(thickness) => store.setArtwork(thickness)}
+          hint="Everything that goes in the rabbet, added up: the print, any mount board, glazing and the backing. The rabbet and the clips are sized around this, so it is worth measuring." />
+        <div className="chips">
+          {[
+            ['Photo print', 0.3],
+            ['Print + card', 2],
+            ['+ mount board', 3.5],
+            ['+ 2 mm acrylic', 5.5],
+            ['Wooden back', 4.5],
+          ].map(([label, mm]) => (
+            <button key={label as string} type="button" className="chip"
+              aria-pressed={Math.abs(config.artwork.thickness - (mm as number)) < 0.05}
+              onClick={() => store.setArtwork(mm as number)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="hint">
+          The rabbet has to be at least <b>{Math.round(minRabbet * 10) / 10} mm</b> deep to hold this
+          and still leave the clip somewhere to sit behind it.
+        </p>
+      </Row>
+
       <Row id="profile" open={open} onToggle={toggle} label="Moulding"
         value={`${presetLabel} · ${params.width.toFixed(0)} × ${params.depth.toFixed(0)} mm`}>
         <Chips<ProfilePreset>
@@ -149,9 +187,11 @@ export function SpecPanel() {
         <Slider label="Rabbet width" value={config.profile.rabbetWidth} min={1} max={Math.max(2, params.width - 2)} step={0.5}
           onChange={(rabbetWidth) => store.setProfile({ rabbetWidth })}
           hint="How far the frame overlaps the artwork on every side." />
-        <Slider label="Rabbet depth" value={config.profile.rabbetDepth} min={1} max={Math.max(2, params.depth - 1.5)} step={0.5}
+        <Slider label="Rabbet depth" value={config.profile.rabbetDepth}
+          min={Math.round(minRabbet * 10) / 10}
+          max={Math.max(minRabbet + 1, params.depth - 1.5)} step={0.5}
           onChange={(rabbetDepth) => store.setProfile({ rabbetDepth })}
-          hint="Room for the artwork, glazing and backing together." />
+          hint={`Room for the artwork and the clip behind it. Its minimum follows the ${Math.round(artwork * 10) / 10} mm of artwork above; raise the thickness there and this moves with it.`} />
         {config.profilePreset !== 'flat' && config.profilePreset !== 'custom' ? (
           <Slider label="Relief" value={config.profile.relief} min={0} max={1} step={0.05} suffix=""
             onChange={(relief) => store.setProfile({ relief })}

@@ -4,6 +4,7 @@ import { offsetPath } from '../shapes.ts'
 import type { RawMesh } from './mesh.ts'
 import { basisTransform, extrudePolygon, transformMesh } from './primitives.ts'
 import { concat } from './joints.ts'
+import { springFor, type SpringSpec } from '../spring.ts'
 
 export interface AccessoryPart {
   id: string
@@ -232,34 +233,102 @@ function translateY(mesh: RawMesh, dy: number): RawMesh {
  * direction in bending.
  * ---------------------------------------------------------------------- */
 
-/** Tilt of the slot, in degrees: how hard the clip is asked to push. */
-const CLIP_TILT_DEG = 6
 /** Slot length along the rail. */
 const CLIP_SLOT_W = 9
-/** Material left under the slot's lowest corner. */
+/** Material kept under the slot's lowest corner. */
 const FLOOR_MM = 0.8
+/** Material kept between the top of the slot and the back of the artwork. */
+const HEADROOM_MM = 0.3
+/** How far the leaf reaches past the rabbet wall, over the artwork. */
+const CLIP_REACH_MM = 12
 
 export interface ClipFit {
   thickness: number
   /** How far the slot reaches into the moulding from the rabbet wall. */
   depth: number
-  /** Slot height and its position above the back face. */
+  /** Slot height and where its mouth sits above the back face. */
   height: number
   z0: number
+  /** Slot tilt, as a gradient. Derived, not fixed — see `clipFit`. */
+  tilt: number
+  /** Straight span of the leaf, from the rabbet wall to its tip. */
+  span: number
+  /** The spring the leaf actually is. */
+  spring: SpringSpec
 }
 
-/** Slot proportions for a given moulding, or null if there is no room. */
-export function clipFit(profile: ProfileParams): ClipFit | null {
-  const thickness = clamp(profile.rabbetDepth * 0.3, 1, 1.6)
-  const height = thickness + 0.4
-  // The slot must not eat through to the outside of the moulding.
+/**
+ * The shallowest rabbet that can hold `artwork` and still leave the clip
+ * somewhere to live behind it.
+ *
+ * Solved from the placement below: the slot has to clear the floor, clear the
+ * back of the artwork, and still let the leaf rest a full squeeze proud of it.
+ */
+export function minimumRabbetDepth(profile: ProfileParams, artwork: number): number {
+  const probe = leafFor(profile)
+  const slotDepth = slotDepthFor(profile)
+  if (slotDepth === null) return artwork + 4
+  const h = probe.thickness + 0.4
+  const k = slotDepth / (slotDepth + probe.span)
+  // Substituting the tilt below into `floor + slotDepth·tanθ + h + headroom ≤
+  // rabbet − artwork` and solving for the rabbet:
+  //   X ≥ [floor + k·(squeeze − floor − thickness) + h + headroom] / (1 − k)
+  const x =
+    (FLOOR_MM + k * (probe.squeeze - FLOOR_MM - probe.thickness) + h + HEADROOM_MM) / (1 - k)
+  return artwork + Math.max(x, probe.squeeze + 1)
+}
+
+const slotDepthFor = (profile: ProfileParams): number | null => {
   const depth = Math.min(6, profile.width - profile.rabbetWidth - 1.5)
-  if (depth < 3) return null
-  // Because the slot is tilted, its far end sits lower than its mouth. Start it
-  // high enough that the low corner still leaves a floor above the back face.
-  const z0 = FLOOR_MM + depth * Math.tan((CLIP_TILT_DEG * Math.PI) / 180)
-  if (z0 + height > profile.rabbetDepth - 0.5) return null
-  return { thickness, depth, height, z0 }
+  return depth < 3 ? null : depth
+}
+
+/**
+ * The leaf is deliberately not scaled off the rabbet depth. That is the number
+ * `minimumRabbetDepth` exists to compute, and letting the spring depend on it
+ * makes the answer depend on itself. Thickness is set by what prints reliably —
+ * about three perimeters — and the span by how far it has to reach.
+ */
+const LEAF_THICKNESS_MM = 1.4
+const LEAF_WIDTH_MM = 4.4
+
+const leafFor = (profile: ProfileParams) =>
+  springFor({
+    thickness: LEAF_THICKNESS_MM,
+    width: LEAF_WIDTH_MM,
+    span: profile.rabbetWidth + CLIP_REACH_MM,
+  })
+
+/**
+ * Where the clip sits, derived from what is actually going in the frame.
+ *
+ * The leaf has to rest one full squeeze proud of the back of the artwork, so
+ * that fitting the artwork deflects it by exactly that much and it presses with
+ * the force the spring was designed around. Tilting the slot is what raises the
+ * leaf, so the tilt is solved for rather than fixed:
+ *
+ *   floor + slotDepth·tanθ + thickness + span·tanθ = (rabbet − artwork) + squeeze
+ *
+ * A thin paper print needs a steeper tilt than a 4 mm backing, which is exactly
+ * the behaviour that was missing: the number you type for the artwork is what
+ * the clip is positioned around.
+ */
+export function clipFit(profile: ProfileParams, artwork: number): ClipFit | null {
+  const depth = slotDepthFor(profile)
+  if (depth === null) return null
+
+  const spring = leafFor(profile)
+  const height = spring.thickness + 0.4
+
+  const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /
+    (depth + spring.span)
+  if (tilt <= 0 || tilt > 0.6) return null
+
+  const z0 = FLOOR_MM + depth * tilt
+  // The tang must not foul the back of the artwork.
+  if (z0 + height + HEADROOM_MM > profile.rabbetDepth - artwork) return null
+
+  return { thickness: spring.thickness, depth, height, z0, tilt, span: spring.span, spring }
 }
 
 /**
@@ -272,7 +341,7 @@ export function clipSlots(
   where: number[],
   tolerance: number,
 ): RawMesh | null {
-  const tilt = Math.tan((CLIP_TILT_DEG * Math.PI) / 180)
+  const tilt = fit.tilt
   const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)
   const h = fit.height + 2 * tolerance
   const z0 = fit.z0 - tolerance
@@ -322,7 +391,7 @@ export function buildClip(
 ): { mesh: RawMesh; print: number[] } {
   const tangLength = fit.depth - 0.8
   const tangWidth = CLIP_SLOT_W - 2 * tolerance - 0.2
-  const armLength = ctx.profile.rabbetWidth + 12
+  const armLength = fit.span
   const armWidth = 4.4
   const amplitude = 2.6
   const steps = 24
@@ -358,7 +427,7 @@ export function buildClip(
   // negative x, goes outward into the slot), +y along the rail, +z the leaf's
   // thickness. Tilted with the slot so the leaf stands off the artwork.
   const dir = ctx.frames[at].dir
-  const theta = (CLIP_TILT_DEG * Math.PI) / 180
+  const theta = Math.atan(fit.tilt)
   const cos = Math.cos(theta)
   const sin = Math.sin(theta)
   const ax: [number, number, number] = [-dir[0] * cos, -dir[1] * cos, sin]
@@ -375,4 +444,3 @@ export function buildClip(
   }
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))

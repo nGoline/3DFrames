@@ -1,61 +1,98 @@
 import { useMemo } from 'react'
-import type { ProfilePoint, ProfileParams, Unit } from '../core/types.ts'
-import { fromMm } from '../core/units.ts'
+import type { ProfilePoint, ProfileParams } from '../core/types.ts'
+import type { ClipFit } from '../core/geometry/accessories.ts'
 
 interface Props {
   profile: ProfilePoint[]
   params: ProfileParams
-  unit: Unit
   presetLabel: string
+  /** Total thickness of everything going in the rabbet. */
+  artwork: number
+  /** The clip, if one will be fitted and there is room for it. */
+  clip: ClipFit | null
+  /** Shallowest rabbet that would hold this artwork with a clip behind it. */
+  minRabbet: number
+  clipsWanted: boolean
 }
 
 const PAD = { l: 17, r: 13, t: 13, b: 19 }
 const VIEW_W = 168
-const MAX_DRAW_H = 74
+const MAX_DRAW_H = 84
 
 /**
- * The moulding drawn as a proper section, the way a framing supplier prints it
- * in a catalogue: cut material hatched at 45°, redline dimensions with
- * architect's ticks, and a dashed ghost showing where the artwork actually
- * lands under the rabbet.
+ * The moulding drawn as a live section — the frame's edge, at the size it will
+ * print, with what actually goes into it drawn in place.
  *
- * This is the one drawing that answers the question people really have — will
- * my print fit, and how much of it will the frame cover — so it sits at the top
- * of the panel and redraws on every edit.
+ * A cross-section on its own only answers "what shape is it". The questions
+ * people really have are whether their artwork fits and whether the clip has
+ * anywhere to go, so the artwork stack and the clip are drawn in too, and the
+ * drawing says plainly whether it all works.
  */
-export function SectionDrawing({ profile, params, unit, presetLabel }: Props) {
-  const draw = useMemo(() => {
-    const { width, depth, rabbetWidth, rabbetDepth } = params
-    const scale = Math.min((VIEW_W - PAD.l - PAD.r) / width, MAX_DRAW_H / depth)
-    const h = depth * scale + PAD.t + PAD.b
-    const x = (u: number) => PAD.l + u * scale
-    const y = (v: number) => PAD.t + (depth - v) * scale
-    return { scale, h, x, y, width, depth, rabbetWidth, rabbetDepth }
-  }, [params])
+export function SectionDrawing({
+  profile,
+  params,
+  presetLabel,
+  artwork,
+  clip,
+  minRabbet,
+  clipsWanted,
+}: Props) {
+  // How far the leaf reaches inward past the sight edge.
+  const reach = clip ? Math.max(0, clip.span - params.rabbetWidth) + 2 : 0
 
-  const { x, y, scale, h, width, depth, rabbetWidth, rabbetDepth } = draw
+  const draw = useMemo(() => {
+    const { width, depth } = params
+    // Room to the left of the sight edge for the artwork to run off. It has to
+    // reach at least as far as the clip does, or the leaf appears to press on
+    // thin air.
+    const overhang = Math.max(Math.min(width * 0.5, 10), reach)
+    const scale = Math.min((VIEW_W - PAD.l - PAD.r) / (width + overhang), MAX_DRAW_H / depth)
+    return {
+      scale,
+      overhang,
+      h: depth * scale + PAD.t + PAD.b,
+      x: (u: number) => PAD.l + (u + overhang) * scale,
+      y: (v: number) => PAD.t + (depth - v) * scale,
+    }
+  }, [params, reach])
+
+  const { x, y, scale, h, overhang } = draw
+  const { width, depth, rabbetWidth, rabbetDepth } = params
   const outline = profile.map((p) => `${x(p.u).toFixed(2)},${y(p.v).toFixed(2)}`).join(' ')
 
-  const dim = (value: number) => {
-    const v = fromMm(value, unit)
-    return unit === 'in' ? `${v.toFixed(2)}"` : `${Math.round(v * 10) / 10}`
-  }
+  /**
+   * Always millimetres here, whatever unit the artwork is measured in. Every
+   * dimension on this drawing is a printer-scale one — a rabbet, a leaf, a
+   * clearance — and 0.11" says nothing useful about any of them.
+   */
+  const dim = (value: number) => `${Math.round(value * 10) / 10}`
 
-  const baseY = y(0)
-  const widthDimY = baseY + 11
-  const depthDimX = PAD.l - 9
+  const stackBack = rabbetDepth - artwork
+  const fits = artwork > 0 && artwork < rabbetDepth && (!clipsWanted || clip !== null)
+  // A clip can fail to fit for two quite different reasons, and saying the
+  // wrong one sends you to adjust the wrong control.
+  const wallLeft = width - rabbetWidth - 1.5
+  const verdict = !clipsWanted
+    ? artwork >= rabbetDepth
+      ? `The rabbet is only ${dim(rabbetDepth)} mm deep — too shallow for ${dim(artwork)} mm of artwork.`
+      : 'Everything fits.'
+    : clip
+      ? 'Everything fits.'
+      : wallLeft < 3
+        ? `Too narrow for a clip: the slot needs 3 mm of wall outside the rabbet and there is ${dim(Math.max(0, wallLeft))} mm. Widen the face or narrow the rabbet.`
+        : `Rabbet needs ${dim(minRabbet)} mm to hold ${dim(artwork)} mm of artwork and a clip behind it.`
 
   return (
     <figure className="section-plate">
       <figcaption>
-        <span>Section through the moulding</span>
+        <span>The frame edge, full size</span>
         <b>{presetLabel}</b>
       </figcaption>
       <svg
         className="section-svg"
         viewBox={`0 0 ${VIEW_W} ${h}`}
         role="img"
-        aria-label={`Cross-section of the moulding: ${dim(width)} wide by ${dim(depth)} thick, with a ${dim(rabbetWidth)} by ${dim(rabbetDepth)} rabbet.`}
+        aria-label={`Section through the moulding: ${dim(width)} by ${dim(depth)} mm, with a ${dim(rabbetWidth)} by ${dim(rabbetDepth)} mm rabbet holding ${dim(artwork)} mm of artwork.`}
       >
         <defs>
           <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -64,46 +101,94 @@ export function SectionDrawing({ profile, params, unit, presetLabel }: Props) {
           </pattern>
         </defs>
 
-        {/* Cut material. */}
         <polygon className="material" points={outline} fill="url(#hatch)" />
 
-        {/* The rabbet void: where the artwork, glazing and backing stack up. */}
-        <rect
-          className="ghost"
-          x={x(0)}
-          y={y(rabbetDepth)}
-          width={rabbetWidth * scale}
-          height={rabbetDepth * scale}
-        />
-        <line className="ghost" x1={x(rabbetWidth)} y1={y(rabbetDepth)} x2={x(rabbetWidth) + 8} y2={y(rabbetDepth) - 5} />
-        <text className="note" x={x(rabbetWidth) + 9.5} y={y(rabbetDepth) - 4}>
-          artwork sits here
-        </text>
+        {/* What goes in: drawn at its real thickness, running off to the left. */}
+        {artwork > 0 && artwork < rabbetDepth ? (
+          <g>
+            <rect
+              className="artwork"
+              x={x(-overhang)}
+              y={y(rabbetDepth)}
+              width={(rabbetWidth + overhang) * scale}
+              height={artwork * scale}
+            />
+            <text className="note artwork-label" x={x(-overhang) + 1.5} y={y(rabbetDepth) + artwork * scale / 2 + 2.2}>
+              artwork {dim(artwork)} mm
+            </text>
+          </g>
+        ) : (
+          <rect
+            className="artwork over"
+            x={x(-overhang)}
+            y={y(rabbetDepth)}
+            width={(rabbetWidth + overhang) * scale}
+            height={Math.min(artwork, depth) * scale}
+          />
+        )}
 
-        {/* Overall width. */}
-        <Dimension x1={x(0)} x2={x(width)} y={widthDimY} label={dim(width)} />
-        <line className="dim" x1={x(0)} y1={baseY + 2} x2={x(0)} y2={widthDimY + 3} />
-        <line className="dim" x1={x(width)} y1={baseY + 2} x2={x(width)} y2={widthDimY + 3} />
+        {/* The clip, pressed against the back of the artwork. */}
+        {clip ? <ClipOutline clip={clip} params={params} stackBack={stackBack} x={x} y={y} scale={scale} /> : null}
 
-        {/* Overall depth. */}
-        <Dimension vertical x1={y(0)} x2={y(depth)} y={depthDimX} label={dim(depth)} />
+        <Dimension x1={x(0)} x2={x(width)} y={y(0) + 11} label={dim(width)} />
+        <line className="dim" x1={x(0)} y1={y(0) + 2} x2={x(0)} y2={y(0) + 14} />
+        <line className="dim" x1={x(width)} y1={y(0) + 2} x2={x(width)} y2={y(0) + 14} />
+        <Dimension vertical x1={y(0)} x2={y(depth)} y={PAD.l - 9} label={dim(depth)} />
 
-        <text className="note" x={x(0) - 1} y={y(depth) - 4} textAnchor="middle">
-          sight
-        </text>
-        <text className="note" x={x(width)} y={y(depth) - 4} textAnchor="middle">
-          outer
-        </text>
+        <text className="note" x={x(0)} y={y(depth) - 4} textAnchor="middle">sight</text>
+        <text className="note" x={x(width)} y={y(depth) - 4} textAnchor="middle">outer</text>
       </svg>
+
       <p className="section-spec">
-        <span>
-          Moulding <b>{dim(width)} × {dim(depth)}</b>
-        </span>
-        <span>
-          Rabbet <b>{dim(rabbetWidth)} × {dim(rabbetDepth)}</b>
-        </span>
+        <span>Moulding <b>{dim(width)} × {dim(depth)} mm</b></span>
+        <span>Rabbet <b>{dim(rabbetWidth)} × {dim(rabbetDepth)} mm</b></span>
+      </p>
+      <p className={`section-verdict${fits ? '' : ' bad'}`}>
+        {fits ? '✓ ' : '! '}
+        {verdict}
+        {fits && clip ? (
+          <span className="section-verdict-detail">
+            {' '}Clip presses {dim(clip.spring.squeeze)} mm, about {clip.spring.force.toFixed(1)} N.
+          </span>
+        ) : null}
       </p>
     </figure>
+  )
+}
+
+/**
+ * The clip in its working position: tang down the tilted slot, leaf sprung up
+ * against the back of the artwork.
+ */
+function ClipOutline({
+  clip,
+  params,
+  stackBack,
+  x,
+  y,
+  scale,
+}: {
+  clip: ClipFit
+  params: ProfileParams
+  stackBack: number
+  x: (u: number) => number
+  y: (v: number) => number
+  scale: number
+}) {
+  const wall = params.rabbetWidth
+  // Pressed flat against the artwork rather than at its free height.
+  const pressed = Math.max(0, (stackBack - clip.z0 - clip.thickness) / clip.span)
+  const points = [
+    [wall + clip.depth, clip.z0 - clip.depth * clip.tilt + clip.thickness / 2],
+    [wall, clip.z0 + clip.thickness / 2],
+    [wall - clip.span, clip.z0 + clip.thickness / 2 + clip.span * pressed],
+  ]
+  return (
+    <polyline
+      className="clip"
+      strokeWidth={clip.thickness * scale}
+      points={points.map(([u, v]) => `${x(u).toFixed(2)},${y(v).toFixed(2)}`).join(' ')}
+    />
   )
 }
 
@@ -140,9 +225,7 @@ function Dimension({
       <line className="dim" x1={x1} y1={y} x2={x2} y2={y} />
       <line className="dim" x1={x1 - tick} y1={y + tick} x2={x1 + tick} y2={y - tick} />
       <line className="dim" x1={x2 - tick} y1={y + tick} x2={x2 + tick} y2={y - tick} />
-      <text className="dim-text" x={mid} y={y - 2.6} textAnchor="middle">
-        {label}
-      </text>
+      <text className="dim-text" x={mid} y={y - 2.6} textAnchor="middle">{label}</text>
     </g>
   )
 }
