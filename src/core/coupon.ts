@@ -1,5 +1,6 @@
 import type { BuildResult, FrameConfig, Part } from './types.ts'
 import { buildOpeningPath, densifyPath, miterFrames, pathLengths } from './shapes.ts'
+import { sightOf } from './sizing.ts'
 import { buildProfile, normaliseParams } from './profiles.ts'
 import { sweep } from './geometry/sweep.ts'
 import { buildJoint } from './geometry/joints.ts'
@@ -58,7 +59,7 @@ export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise
   ]
 
   const artwork = Math.max(0, config.artwork.thickness)
-  const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance) : null
+  const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sightOf(config))) : null
 
   for (const [style, offset] of [
     ['snap', 0],

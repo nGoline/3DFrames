@@ -28,9 +28,11 @@ export function SpecPanel() {
   const presetLabel = PROFILE_PRESETS.find((p) => p.id === config.profilePreset)?.label ?? 'Custom'
   const printer = PRINTERS.find((p) => p.id === config.plate.printer)
   const artwork = Math.max(0, config.artwork.thickness)
-  const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance) : null
-  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance)
   const sight = sightOf({ ...config, profile: params })
+  const clip = config.accessories.clips
+    ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sight))
+    : null
+  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance, Math.min(...sight))
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100

@@ -30,11 +30,24 @@ const STRESS_LIMIT = 18
  */
 const TARGET_FORCE = 4
 /**
- * How much longer the S-curve makes the leaf than its straight span. Bending
- * goes as the cube of length, so the S is what makes a clip this short flexible
- * enough to be worth calling a spring.
+ * The leaf is straight, and that is a correction rather than a simplification.
+ *
+ * It used to be S-curved, on the reasoning that the extra path length bought
+ * compliance — bending goes as the cube of length, so an S was supposedly worth
+ * 1.7x. Working it out properly says otherwise. For an out-of-plane tip load on
+ * a planar curved beam, Castigliano gives
+ *
+ *     δ/P = ∫ [ (r·t)²/EI + (r×t)²/GJ ] ds
+ *
+ * where r is the in-plane vector from each point to the tip. Wandering sideways
+ * lengthens ds but shortens r, and the two very nearly cancel: a 2.6 mm S over
+ * a 20 mm span is worth 1.068x, not 4.9x. It was buying 7% of compliance while
+ * the model claimed 390%, so every leaf sized against it was carrying about
+ * three times the stress it was supposed to.
+ *
+ * A straight leaf gets its compliance from length, where the cube law actually
+ * applies, and its behaviour is exactly the textbook cantilever.
  */
-export const S_CURVE_FACTOR = 1.7
 
 export interface Leaf {
   /** Leaf thickness, in mm. */
@@ -46,7 +59,7 @@ export interface Leaf {
 }
 
 export interface SpringSpec extends Leaf {
-  /** Effective beam length once the S-curve is accounted for, in mm. */
+  /** Beam length, in mm. The leaf is straight, so this is its span. */
   length: number
   /** Deflection the clip is built to work at, in mm. */
   squeeze: number
@@ -73,7 +86,7 @@ const stressAt = (leaf: Leaf, length: number, deflection: number) =>
  * a wasted print.
  */
 export function springFor(leaf: Leaf): SpringSpec {
-  const length = leaf.span * S_CURVE_FACTOR
+  const length = leaf.span
   let squeeze = deflectionFor(leaf, length, TARGET_FORCE)
 
   const limit = (STRESS_LIMIT * 2 * length ** 2) / (3 * E_PLA * leaf.thickness)
@@ -90,9 +103,15 @@ export function springFor(leaf: Leaf): SpringSpec {
 }
 
 /** Deflection at which the leaf would reach the working stress limit. */
-export const squeezeLimit = (leaf: Leaf): number => {
-  const length = leaf.span * S_CURVE_FACTOR
-  return (STRESS_LIMIT * 2 * length ** 2) / (3 * E_PLA * leaf.thickness)
-}
+export const squeezeLimit = (leaf: Leaf): number =>
+  (STRESS_LIMIT * 2 * leaf.span ** 2) / (3 * E_PLA * leaf.thickness)
+
+/**
+ * The span a leaf needs to reach a given travel without exceeding the working
+ * stress. Travel is what tolerates a mis-measured stack, so it is the thing
+ * worth solving for; the force that comes with it is 3·w·t²/span.
+ */
+export const spanForTravel = (thickness: number, travel: number): number =>
+  Math.sqrt((3 * E_PLA * thickness * travel) / (2 * STRESS_LIMIT))
 
 export const STRESS_CEILING = STRESS_LIMIT

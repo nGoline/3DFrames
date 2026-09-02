@@ -4,7 +4,7 @@ import { offsetPath } from '../shapes.ts'
 import type { RawMesh } from './mesh.ts'
 import { basisTransform, extrudePolygon, transformMesh } from './primitives.ts'
 import { concat } from './joints.ts'
-import { springFor, type SpringSpec } from '../spring.ts'
+import { spanForTravel, springFor, type SpringSpec } from '../spring.ts'
 
 export interface AccessoryPart {
   id: string
@@ -270,8 +270,13 @@ const GRIP_ZONE_MM = 2
 /** Slot height along its parallel section, for a leaf of the given thickness. */
 const slotHeight = (thickness: number, tolerance: number) =>
   thickness + 2 * clipFitFor(tolerance)
-/** How far the leaf reaches past the rabbet wall, over the artwork. */
-const CLIP_REACH_MM = 14
+/**
+ * Travel the leaf is sized for. This is the slack that absorbs a mis-measured
+ * stack, so it is solved for first and the force follows from it.
+ */
+const CLIP_TRAVEL_MM = 2
+/** Longest the leaf may reach in over the artwork, so opposite clips clear. */
+const CLIP_REACH_CAP_MM = 32
 
 export interface ClipFit {
   thickness: number
@@ -301,8 +306,9 @@ export function minimumRabbetDepth(
   profile: ProfileParams,
   artwork: number,
   tolerance = 0.18,
+  aperture = Infinity,
 ): number {
-  const probe = leafFor(profile)
+  const probe = leafFor(profile, aperture)
   const slotDepth = slotDepthFor(profile)
   if (slotDepth === null) return artwork + 4
   const h = slotHeight(probe.thickness, tolerance)
@@ -329,12 +335,17 @@ const slotDepthFor = (profile: ProfileParams): number | null => {
 const LEAF_THICKNESS_MM = 1.8
 const LEAF_WIDTH_MM = 7.5
 
-const leafFor = (profile: ProfileParams) =>
-  springFor({
-    thickness: LEAF_THICKNESS_MM,
-    width: LEAF_WIDTH_MM,
-    span: profile.rabbetWidth + CLIP_REACH_MM,
-  })
+const leafFor = (profile: ProfileParams, aperture = Infinity) => {
+  // Length is where compliance actually comes from, so it is derived from the
+  // travel wanted rather than picked, then capped so two clips facing each
+  // other across a small opening cannot meet in the middle.
+  const wanted = spanForTravel(LEAF_THICKNESS_MM, CLIP_TRAVEL_MM)
+  const span = Math.max(
+    profile.rabbetWidth + 8,
+    Math.min(wanted, CLIP_REACH_CAP_MM, aperture / 3),
+  )
+  return springFor({ thickness: LEAF_THICKNESS_MM, width: LEAF_WIDTH_MM, span })
+}
 
 /**
  * Where the clip sits, derived from what is actually going in the frame.
@@ -354,11 +365,12 @@ export function clipFit(
   profile: ProfileParams,
   artwork: number,
   tolerance = 0.18,
+  aperture = Infinity,
 ): ClipFit | null {
   const depth = slotDepthFor(profile)
   if (depth === null) return null
 
-  const spring = leafFor(profile)
+  const spring = leafFor(profile, aperture)
   const height = slotHeight(spring.thickness, tolerance)
 
   const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /
@@ -438,29 +450,23 @@ export function buildClip(
   const tangWidth = CLIP_SLOT_W - 2 * clipFitFor(fit.tolerance)
   const armLength = fit.span
   const armWidth = LEAF_WIDTH_MM
-  const amplitude = 2.6
-  const steps = 24
+  const tip = armWidth / 2
 
-  // Centre line of the leaf: one full S, which roughly doubles its length and so
-  // drops its stiffness without taking any more room.
-  const centre: Vec2[] = []
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps
-    centre.push([t * armLength, amplitude * Math.sin(t * Math.PI * 2)])
+  // Straight, with a rounded tip so it does not dig into the backing. The leaf
+  // used to be S-curved; that bought 7% of compliance for a real risk of the
+  // offset folding through itself on narrow mouldings, and it is length that
+  // makes a spring, not wandering.
+  const nose: Vec2[] = []
+  for (let i = 0; i <= 10; i++) {
+    const a = -Math.PI / 2 + (i / 10) * Math.PI
+    nose.push([armLength - tip + tip * Math.cos(a), tip * Math.sin(a)])
   }
-  const side = (sign: number): Vec2[] =>
-    centre.map(([x, y], i) => {
-      const prev = centre[Math.max(0, i - 1)]
-      const next = centre[Math.min(centre.length - 1, i + 1)]
-      const dx = next[0] - prev[0]
-      const dy = next[1] - prev[1]
-      const len = Math.hypot(dx, dy) || 1
-      return [x + (sign * (dy / len) * armWidth) / 2, y - (sign * (dx / len) * armWidth) / 2] as Vec2
-    })
 
+  // The nose already starts and ends on the blade's edges, so adding those
+  // corners again would leave zero-length edges and a non-manifold solid.
   const poly: Vec2[] = [
-    ...side(1),
-    ...side(-1).reverse(),
+    [0, -armWidth / 2],
+    ...nose,
     [0, armWidth / 2],
     [0, tangWidth / 2],
     [-tangLength, tangWidth / 2],

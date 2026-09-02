@@ -536,6 +536,24 @@ console.log('')
   }
 
   // A clip that fits but barely presses is no use; this is what was reported.
+  // The stress the leaf actually carries, from the textbook cantilever — no
+  // fudge factor. A leaf held permanently at anywhere near PLA's ~55 MPa yield
+  // creeps and takes a set, which is a clip that stops pressing after a week.
+  {
+    const E = 3000
+    const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
+    const stress = (3 * E * fit.spring.squeeze * fit.spring.thickness) / (2 * fit.span ** 2)
+    const force = (3 * E * I * fit.spring.squeeze) / fit.span ** 3
+    check('the leaf stress is what the model says it is',
+      Math.abs(stress - fit.spring.stress) < 0.5,
+      `${stress.toFixed(1)} MPa measured against ${fit.spring.stress.toFixed(1)} claimed`)
+    check('the leaf force is what the model says it is',
+      Math.abs(force - fit.spring.force) < 0.05,
+      `${force.toFixed(2)} N measured against ${fit.spring.force.toFixed(2)} claimed`)
+    check('and it is nowhere near yielding under permanent load', stress < 25,
+      `${stress.toFixed(1)} MPa, PLA yields around 55`)
+  }
+
   check('the leaf presses hard enough to hold artwork', fit.spring.force >= 1.5,
     `${fit.spring.force.toFixed(2)} N per clip, ${(fit.spring.force * 4).toFixed(1)} N over four`)
   check('and keeps enough travel to tolerate a mis-measured stack',
