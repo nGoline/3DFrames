@@ -1,3 +1,4 @@
+import type { Vec2 } from './types.ts'
 import type { Material } from './materials.ts'
 
 /**
@@ -109,5 +110,79 @@ export const squeezeLimit = (leaf: Leaf): number =>
  */
 export const spanForTravel = (material: Material, thickness: number, travel: number): number =>
   Math.sqrt((3 * material.stiffness * thickness * travel) / (2 * material.working))
+
+/* --- Springs of any shape ------------------------------------------------ */
+
+/**
+ * Analyse a leaf from its centre line rather than from a formula.
+ *
+ * Closed forms have been wrong twice here — once for an S-curve, once for a
+ * folded leaf whose load I put in the wrong place — so the shape is integrated
+ * directly. For an out-of-plane tip load on a planar beam, Castigliano gives
+ *
+ *     δ/P = (1/EI) ∫ [ (r·t)² + (r×t)²·EI/GJ ] ds
+ *
+ * with r the in-plane vector from each point to the loaded point and t the unit
+ * tangent: r·t bends the strip, r×t twists it. Peak bending moment is P·max|r·t|.
+ *
+ * For a straight cantilever this reduces to the textbook PL³/3EI and 6PL/wt²,
+ * which is asserted in the tests rather than assumed here.
+ */
+export interface Shape {
+  /** Centre line, in mm. The last point is where the load is applied. */
+  points: Vec2[]
+}
+
+/** Thin strip: GJ/EI = (E/2.6)(wt³/3) / (E wt³/12) = 1.538. */
+const TORSION_SHARE = 1 / 1.538
+
+export interface ShapeSpec {
+  /** ∫[(r·t)² + (r×t)²·EI/GJ] ds, in mm³. Deflection is P·this/EI. */
+  compliance: number
+  /** Largest bending lever arm along the beam, in mm. */
+  arm: number
+}
+
+export function analyse(shape: Shape): ShapeSpec {
+  const pts = shape.points
+  const tip = pts[pts.length - 1]
+  let compliance = 0
+  let arm = 0
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i]
+    const b = pts[i + 1]
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    const ds = Math.hypot(dx, dy)
+    if (ds < 1e-9) continue
+    const tx = dx / ds
+    const ty = dy / ds
+    // Take the arm at the segment's midpoint.
+    const rx = tip[0] - (a[0] + b[0]) / 2
+    const ry = tip[1] - (a[1] + b[1]) / 2
+    const bend = rx * tx + ry * ty
+    const twist = ry * tx - rx * ty
+    compliance += (bend * bend + TORSION_SHARE * twist * twist) * ds
+    arm = Math.max(arm, Math.abs(bend))
+  }
+  return { compliance, arm }
+}
+
+/** What a leaf of this shape does, worked to the material's limit. */
+export function springForShape(leaf: Leaf, shape: Shape): SpringSpec {
+  const { compliance, arm } = analyse(shape)
+  const I = secondMoment(leaf)
+  const E = leaf.material.stiffness
+  // σ = M·c/I = 6·P·arm/(w·t²), and δ = P·compliance/(EI). Eliminating P:
+  const squeeze = (2 * compliance * leaf.material.working) / (E * leaf.thickness * arm)
+  const force = (squeeze * E * I) / compliance
+  return {
+    ...leaf,
+    length: compliance,
+    squeeze,
+    force,
+    stress: (6 * force * arm) / (leaf.width * leaf.thickness ** 2),
+  }
+}
 
 

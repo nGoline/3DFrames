@@ -1,10 +1,10 @@
-import type { Accessories, BuildPlate, ProfileParams, Vec2 } from '../types.ts'
+import type { Accessories, BuildPlate, ClipStyle, ProfileParams, Vec2 } from '../types.ts'
 import type { MiterFrame } from '../shapes.ts'
 import { offsetPath } from '../shapes.ts'
 import type { RawMesh } from './mesh.ts'
 import { basisTransform, extrudePolygon, transformMesh } from './primitives.ts'
 import { concat } from './joints.ts'
-import { spanForTravel, springFor, type SpringSpec } from '../spring.ts'
+import { spanForTravel, springFor, springForShape, type SpringSpec } from '../spring.ts'
 import { materialById, type Material } from '../materials.ts'
 
 export interface AccessoryPart {
@@ -275,7 +275,19 @@ const slotHeight = (thickness: number, tolerance: number) =>
  * Travel the leaf is sized for. This is the slack that absorbs a mis-measured
  * stack, so it is solved for first and the force follows from it.
  */
-const CLIP_TRAVEL_MM = 2
+const CLIP_TRAVEL_MM = 2.5
+/**
+ * How far inboard of the rabbet wall a folded clip's foot presses.
+ *
+ * The lip only covers the artwork from the sight edge out to the rabbet wall.
+ * Press anywhere further in and there is nothing behind the paper: it simply
+ * bulges out through the aperture. The foot lands halfway along the lip, where
+ * the artwork is pinched rather than pushed.
+ */
+const CLIP_FOOT_MM = 3
+/** Width of each leg of a folded clip, and the gap between them. */
+const LEG_WIDTH_MM = 5
+const LEG_GAP_MM = 2.5
 /** Longest the leaf may reach in over the artwork, so opposite clips clear. */
 const CLIP_REACH_CAP_MM = 32
 
@@ -294,6 +306,7 @@ export interface ClipFit {
   spring: SpringSpec
   /** The clearance this fit was worked out at. */
   tolerance: number
+  style: ClipStyle
 }
 
 /**
@@ -309,8 +322,9 @@ export function minimumRabbetDepth(
   tolerance = 0.18,
   aperture = Infinity,
   material = materialById('pla'),
+  style: ClipStyle = 'folded',
 ): number {
-  const probe = leafFor(profile, material, aperture)
+  const probe = leafFor(profile, material, aperture, style)
   const slotDepth = slotDepthFor(profile)
   if (slotDepth === null) return artwork + 4
   const h = slotHeight(probe.thickness, tolerance)
@@ -337,16 +351,50 @@ const slotDepthFor = (profile: ProfileParams): number | null => {
 const LEAF_THICKNESS_MM = 1.8
 const LEAF_WIDTH_MM = 7.5
 
-const leafFor = (profile: ProfileParams, material: Material, aperture = Infinity) => {
-  // Length is where compliance actually comes from, so it is derived from the
-  // travel wanted rather than picked, then capped so two clips facing each
-  // other across a small opening cannot meet in the middle.
-  const wanted = spanForTravel(material, LEAF_THICKNESS_MM, CLIP_TRAVEL_MM)
-  const span = Math.max(
-    profile.rabbetWidth + 8,
-    Math.min(wanted, CLIP_REACH_CAP_MM, aperture / 3),
+/** Centre line of a folded leaf: out to the fold, round it, back to the foot. */
+export function foldedPath(fold: number): Vec2[] {
+  const off = (LEG_WIDTH_MM + LEG_GAP_MM) / 2
+  const pts: Vec2[] = []
+  const n = 40
+  for (let i = 0; i <= n; i++) pts.push([(fold * i) / n, -off])
+  for (let i = 1; i <= 16; i++) {
+    const a = -Math.PI / 2 + Math.PI * (i / 16)
+    pts.push([fold + off * Math.cos(a), off * Math.sin(a)])
+  }
+  for (let i = 1; i <= n; i++) pts.push([fold - ((fold - CLIP_FOOT_MM) * i) / n, off])
+  return pts
+}
+
+const leafFor = (profile: ProfileParams, material: Material, aperture = Infinity, style: ClipStyle = 'folded') => {
+  const cap = Math.min(CLIP_REACH_CAP_MM, aperture / 3)
+
+  if (style === 'straight') {
+    // Compliance from length alone, so it reaches a long way in — and presses
+    // where nothing supports the artwork unless a backing panel spans it.
+    const wanted = spanForTravel(material, LEAF_THICKNESS_MM, CLIP_TRAVEL_MM)
+    const span = Math.max(profile.rabbetWidth + 8, Math.min(wanted, cap))
+    return springFor({ material, thickness: LEAF_THICKNESS_MM, width: LEAF_WIDTH_MM, span })
+  }
+
+  // Folding buys compliance from bending *and* twisting, so the fold length has
+  // no tidy closed form. Search it instead: shorter folds press harder and
+  // travel less, and the travel is what has to be met.
+  let lo = 5
+  let hi = cap
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2
+    const trial = springForShape(
+      { material, thickness: LEAF_THICKNESS_MM, width: LEG_WIDTH_MM, span: mid },
+      { points: foldedPath(mid) },
+    )
+    if (trial.squeeze < CLIP_TRAVEL_MM) lo = mid
+    else hi = mid
+  }
+  const fold = Math.min(hi, cap)
+  return springForShape(
+    { material, thickness: LEAF_THICKNESS_MM, width: LEG_WIDTH_MM, span: fold },
+    { points: foldedPath(fold) },
   )
-  return springFor({ material, thickness: LEAF_THICKNESS_MM, width: LEAF_WIDTH_MM, span })
 }
 
 /**
@@ -369,11 +417,12 @@ export function clipFit(
   tolerance = 0.18,
   aperture = Infinity,
   material = materialById('pla'),
+  style: ClipStyle = 'folded',
 ): ClipFit | null {
   const depth = slotDepthFor(profile)
   if (depth === null) return null
 
-  const spring = leafFor(profile, material, aperture)
+  const spring = leafFor(profile, material, aperture, style)
   const height = slotHeight(spring.thickness, tolerance)
 
   const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /
@@ -384,7 +433,7 @@ export function clipFit(
   // The tang must not foul the back of the artwork.
   if (z0 + height + HEADROOM_MM > profile.rabbetDepth - artwork) return null
 
-  return { thickness: spring.thickness, depth, height, z0, tilt, span: spring.span, spring, tolerance }
+  return { thickness: spring.thickness, depth, height, z0, tilt, span: spring.span, spring, tolerance, style }
 }
 
 /**
@@ -436,6 +485,60 @@ export function clipSlots(ctx: AccessoryContext, fit: ClipFit, where: number[]):
 }
 
 /**
+ * Outline of a folded clip: down one leg, round the fold, back up the other to
+ * a foot that lands over the lip. The slot between the legs is open toward the
+ * tang, which keeps this one simple polygon rather than a shape with a hole.
+ */
+function foldedOutline(fold: number, tangLength: number, tw: number): Vec2[] {
+  const off = (LEG_WIDTH_MM + LEG_GAP_MM) / 2
+  const outer = off + LEG_WIDTH_MM / 2
+  const inner = off - LEG_WIDTH_MM / 2
+  const arc = (radius: number, from: number, to: number): Vec2[] => {
+    const pts: Vec2[] = []
+    for (let i = 1; i < 16; i++) {
+      const a = from + (to - from) * (i / 16)
+      pts.push([fold + radius * Math.cos(a), radius * Math.sin(a)])
+    }
+    return pts
+  }
+  return [
+    [-tangLength, -tw],
+    [0, -tw],
+    [0, -outer],
+    [fold, -outer],
+    ...arc(outer, -Math.PI / 2, Math.PI / 2),
+    [fold, outer],
+    [CLIP_FOOT_MM, outer],
+    [CLIP_FOOT_MM, inner],
+    [fold, inner],
+    ...arc(inner, Math.PI / 2, -Math.PI / 2),
+    [fold, -inner],
+    [0, -inner],
+    [0, tw],
+    [-tangLength, tw],
+  ]
+}
+
+/** Outline of a straight clip: a blade with a rounded tip. */
+function straightOutline(span: number, tangLength: number, tw: number): Vec2[] {
+  const half = LEAF_WIDTH_MM / 2
+  const nose: Vec2[] = []
+  for (let i = 0; i <= 10; i++) {
+    const a = -Math.PI / 2 + (i / 10) * Math.PI
+    nose.push([span - half + half * Math.cos(a), half * Math.sin(a)])
+  }
+  return [
+    [0, -half],
+    ...nose,
+    [0, half],
+    [0, tw],
+    [-tangLength, tw],
+    [-tangLength, -tw],
+    [0, -tw],
+  ]
+}
+
+/**
  * One spring clip: a tang that plugs into the slot, an S-curved leaf that gives
  * it enough length to flex in a small space, and a tip that bears on the back of
  * the artwork.
@@ -451,31 +554,11 @@ export function buildClip(
 ): { mesh: RawMesh; print: number[] } {
   const tangLength = fit.depth - TANG_BACKOFF_MM
   const tangWidth = CLIP_SLOT_W - 2 * clipFitFor(fit.tolerance)
-  const armLength = fit.span
-  const armWidth = LEAF_WIDTH_MM
-  const tip = armWidth / 2
-
-  // Straight, with a rounded tip so it does not dig into the backing. The leaf
-  // used to be S-curved; that bought 7% of compliance for a real risk of the
-  // offset folding through itself on narrow mouldings, and it is length that
-  // makes a spring, not wandering.
-  const nose: Vec2[] = []
-  for (let i = 0; i <= 10; i++) {
-    const a = -Math.PI / 2 + (i / 10) * Math.PI
-    nose.push([armLength - tip + tip * Math.cos(a), tip * Math.sin(a)])
-  }
-
-  // The nose already starts and ends on the blade's edges, so adding those
-  // corners again would leave zero-length edges and a non-manifold solid.
-  const poly: Vec2[] = [
-    [0, -armWidth / 2],
-    ...nose,
-    [0, armWidth / 2],
-    [0, tangWidth / 2],
-    [-tangLength, tangWidth / 2],
-    [-tangLength, -tangWidth / 2],
-    [0, -tangWidth / 2],
-  ]
+  const tw = tangWidth / 2
+  const poly: Vec2[] =
+    fit.style === 'folded'
+      ? foldedOutline(fit.span, tangLength, tw)
+      : straightOutline(fit.span, tangLength, tw)
 
   // Installed frame: local +x runs inward over the artwork (so the tang, at
   // negative x, goes outward into the slot), +y along the rail, +z the leaf's

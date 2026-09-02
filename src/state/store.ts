@@ -111,6 +111,7 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
       config.joint.tolerance,
       Math.min(...sightOf(config)),
       materialById(config.material),
+      config.clipStyle,
     )
     const rabbetDepth = Math.max(profile.rabbetDepth, Math.ceil(needed * 2) / 2)
     // The moulding has to stay thick enough to have that rabbet cut into it.

@@ -108,6 +108,7 @@ export function reviveDesign(raw: unknown): Design {
       hanger: bool(acc.hanger, base.accessories.hanger),
       backer: bool(acc.backer, base.accessories.backer),
     },
+    clipStyle: pick(d.clipStyle, ['folded', 'straight'] as const, base.clipStyle),
     joint: {
       style: pick(joint.style, ['snap', 'key'] as const, base.joint.style),
       tolerance: num(joint.tolerance, base.joint.tolerance),

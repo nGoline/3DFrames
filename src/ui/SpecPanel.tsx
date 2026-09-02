@@ -31,9 +31,9 @@ export function SpecPanel() {
   const artwork = Math.max(0, config.artwork.thickness)
   const sight = sightOf({ ...config, profile: params })
   const clip = config.accessories.clips
-    ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material))
+    ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material), config.clipStyle)
     : null
-  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material))
+  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material), config.clipStyle)
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100
@@ -288,6 +288,17 @@ export function SpecPanel() {
       </Row>
 
       <Row id="fittings" open={open} onToggle={toggle} label="Fittings" value={fittingsSummary(config.accessories)}>
+        {config.accessories.clips ? (
+          <Chips
+            label="Clip shape"
+            value={config.clipStyle}
+            options={[
+              { id: 'folded' as const, label: 'Folded', blurb: 'Doubles back so it presses on the rabbet lip, where the frame is behind the artwork. Works with a bare paper print.' },
+              { id: 'straight' as const, label: 'Straight', blurb: 'Reaches further in and presses in mid-air. Needs a rigid backing panel to spread the load, or thin artwork bulges out through the aperture.' },
+            ]}
+            onChange={(clipStyle) => store.set({ clipStyle })}
+          />
+        ) : null}
         <Switch checked={config.accessories.clips} onChange={(v) => store.setAccessory('clips', v)}
           title="Spring clips" note="Sprung strips that push into slots in the rabbet and press the artwork forward. Works with any backing — printed, card or foamboard — and at any frame size. Adds the slots to the frame." />
         <Switch checked={config.accessories.backer} onChange={(v) => store.setAccessory('backer', v)}

@@ -213,10 +213,11 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
         config.joint.tolerance,
         Math.min(...sightOf(config)),
         materialById(config.material),
+        config.clipStyle,
       )
     : null
   if (config.accessories.clips && !clip) {
-    const needed = minimumRabbetDepth(profileParams, artwork, config.joint.tolerance, Math.min(...sightOf(config)), materialById(config.material))
+    const needed = minimumRabbetDepth(profileParams, artwork, config.joint.tolerance, Math.min(...sightOf(config)), materialById(config.material), config.clipStyle)
     warnings.push(
       needed > profileParams.rabbetDepth
         ? `The rabbet is ${profileParams.rabbetDepth.toFixed(1)} mm deep, which cannot hold ${artwork.toFixed(1)} mm of artwork and leave room for a clip behind it. Deepen it to at least ${needed.toFixed(1)} mm.`
@@ -225,8 +226,16 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   }
   if (clip) {
     notes.push(
-      `Clips are set to press ${clip.spring.squeeze.toFixed(1)} mm into ${artwork.toFixed(1)} mm of artwork, about ${clip.spring.force.toFixed(1)} N each.`,
+      `Clips press ${clip.spring.squeeze.toFixed(1)} mm into ${artwork.toFixed(1)} mm of artwork, about ${clip.spring.force.toFixed(1)} N each in ${materialById(config.material).label}.`,
     )
+    // A straight clip presses well inside the sight opening, where nothing is
+    // behind the artwork. That is fine through a rigid panel and not fine
+    // through paper alone.
+    if (clip.style === 'straight' && !config.accessories.backer) {
+      warnings.push(
+        'Straight clips press inside the sight opening, where the frame is not behind the artwork. Without a backing panel to spread that, thin artwork will bulge out through the aperture. Use folded clips, or add the backing panel.',
+      )
+    }
   }
   const clipWhere: number[] = []
   if (clip) {

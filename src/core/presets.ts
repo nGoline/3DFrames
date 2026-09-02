@@ -102,6 +102,7 @@ export const SIZE_PRESETS: SizePreset[] = [
 export const DEFAULT_CONFIG: FrameConfig = {
   unit: 'in',
   material: 'pla',
+  clipStyle: 'folded',
   // A print with a card backing. A wooden back is more like 4.5 mm.
   artwork: { thickness: 2 },
   plate: { printer: 'bambu-p1-x1', x: 256, y: 256, z: 256, smartOrientation: true },

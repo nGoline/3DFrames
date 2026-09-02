@@ -9,7 +9,7 @@ import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
-import { clipFit, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
+import { clipFit, foldedPath, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
 import { MATERIALS, materialById } from '../src/core/materials.ts'
 import { FACE_PATTERNS, createDisplacer } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
@@ -24,6 +24,36 @@ const { Manifold, Mesh } = wasm
 
 const params: ProfileParams = { width: 15, depth: 12, rabbetWidth: 5, rabbetDepth: 4, relief: 0.8 }
 let failures = 0
+
+/**
+ * Force and stress for a clip, integrated here from its own centre line rather
+ * than taken from the module under test. For a straight leaf this reduces to
+ * the textbook cantilever, which is asserted separately.
+ */
+function beamOf(fit: { style: string; span: number; spring: { width: number; thickness: number; squeeze: number } }, stiffness: number) {
+  const line: [number, number][] =
+    fit.style === 'folded' ? (foldedPath(fit.span) as [number, number][]) : [[0, 0], [fit.span, 0]]
+  const tip = line[line.length - 1]
+  let compliance = 0
+  let arm = 0
+  for (let i = 0; i < line.length - 1; i++) {
+    const a = line[i]
+    const b = line[i + 1]
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    const ds = Math.hypot(dx, dy)
+    if (ds < 1e-9) continue
+    const rx = tip[0] - (a[0] + b[0]) / 2
+    const ry = tip[1] - (a[1] + b[1]) / 2
+    const bend = (rx * dx + ry * dy) / ds
+    const twist = (ry * dx - rx * dy) / ds
+    compliance += (bend * bend + (twist * twist) / 1.538) * ds
+    arm = Math.max(arm, Math.abs(bend))
+  }
+  const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
+  const force = (fit.spring.squeeze * stiffness * I) / compliance
+  return { force, stress: (6 * force * arm) / (fit.spring.width * fit.spring.thickness ** 2) }
+}
 
 function check(name: string, ok: boolean, detail = '') {
   if (!ok) failures++
@@ -536,23 +566,19 @@ console.log('')
   }
 
   // A clip that fits but barely presses is no use; this is what was reported.
-  // The stress the leaf actually carries, from the textbook cantilever — no
-  // fudge factor. A leaf held permanently at anywhere near PLA's ~55 MPa yield
-  // creeps and takes a set, which is a clip that stops pressing after a week.
+  // Integrated from the leaf's own centre line, independently of the module
+  // that produced the numbers.
   {
-    const E = materialById(cfg.material).stiffness
-    const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
-    const stress = (3 * E * fit.spring.squeeze * fit.spring.thickness) / (2 * fit.span ** 2)
-    const force = (3 * E * I * fit.spring.squeeze) / fit.span ** 3
-    check('the leaf stress is what the model says it is',
-      Math.abs(stress - fit.spring.stress) < 0.5,
-      `${stress.toFixed(1)} MPa measured against ${fit.spring.stress.toFixed(1)} claimed`)
-    check('the leaf force is what the model says it is',
-      Math.abs(force - fit.spring.force) < 0.05,
-      `${force.toFixed(2)} N measured against ${fit.spring.force.toFixed(2)} claimed`)
     const mat = materialById(cfg.material)
-    check('and it is nowhere near yielding under permanent load', stress < mat.yieldStress * 0.45,
-      `${stress.toFixed(1)} MPa against ${mat.label} yielding around ${mat.yieldStress}`)
+    const beam = beamOf(fit, mat.stiffness)
+    check('the leaf force is what the model says it is',
+      Math.abs(beam.force - fit.spring.force) < 0.1,
+      `${beam.force.toFixed(2)} N integrated against ${fit.spring.force.toFixed(2)} claimed`)
+    check('the leaf stress is what the model says it is',
+      Math.abs(beam.stress - fit.spring.stress) < 0.5,
+      `${beam.stress.toFixed(1)} MPa integrated against ${fit.spring.stress.toFixed(1)} claimed`)
+    check('and it is nowhere near yielding under permanent load', beam.stress < mat.yieldStress * 0.45,
+      `${beam.stress.toFixed(1)} MPa against ${mat.label} yielding around ${mat.yieldStress}`)
   }
 
   check('the leaf presses hard enough to hold artwork', fit.spring.force >= 1.5,
@@ -914,10 +940,16 @@ console.log('')
     quality: 2,
   })
 
+  // Compare by value, not by serialised text: key order is not part of a design
+  // and a new field should not look like a round-trip failure.
   const round = decodeDesign(encodeDesign(design))
+  const stable = (v: unknown): string =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? `{${Object.keys(v as object).sort().map((k) => `${k}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}`
+      : JSON.stringify(v)
   check('a design survives the round trip through a link',
-    JSON.stringify(round) === JSON.stringify(design),
-    JSON.stringify(round) === JSON.stringify(design) ? '' : 'differs after decoding')
+    stable(round) === stable(design),
+    stable(round) === stable(design) ? '' : 'differs after decoding')
 
   const link = encodeDesign(design)
   check('the link is short enough to paste', link.length < 700, `${link.length} characters`)
@@ -1016,23 +1048,74 @@ console.log('')
 // not for the one the model happened to be written around.
 // ---------------------------------------------------------------------------
 {
-  const params = normaliseParams({ ...DEFAULT_CONFIG.profile, rabbetDepth: 7.5 })
   for (const material of MATERIALS) {
+    const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 24 })
+    const rabbetDepth = Math.ceil(minimumRabbetDepth(probe, 3.4, 0.18, 200, material) * 2) / 2
+    const params = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: rabbetDepth + 2, rabbetDepth })
     const fit = clipFit(params, 3.4, 0.18, 200, material)!
     check(`${material.label}: a clip fits`, !!fit)
-    const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
-    const stress = (3 * material.stiffness * fit.spring.squeeze * fit.spring.thickness) / (2 * fit.span ** 2)
-    const force = (3 * material.stiffness * I * fit.spring.squeeze) / fit.span ** 3
+    const beam = beamOf(fit, material.stiffness)
     check(`${material.label}: the quoted force is true for it`,
-      Math.abs(force - fit.spring.force) < 0.05,
-      `${force.toFixed(2)} N computed against ${fit.spring.force.toFixed(2)} quoted`)
-    check(`${material.label}: worked well below yield`, stress <= material.yieldStress * 0.45,
-      `${stress.toFixed(1)} MPa, yields around ${material.yieldStress}`)
+      Math.abs(beam.force - fit.spring.force) < 0.1,
+      `${beam.force.toFixed(2)} N integrated against ${fit.spring.force.toFixed(2)} quoted`)
+    check(`${material.label}: worked well below yield`, beam.stress <= material.yieldStress * 0.45,
+      `${beam.stress.toFixed(1)} MPa, yields around ${material.yieldStress}`)
     check(`${material.label}: presses hard enough to be worth fitting`, fit.spring.force >= 1.5,
       `${fit.spring.force.toFixed(2)} N`)
     check(`${material.label}: keeps its travel`, fit.spring.squeeze >= 1.8,
       `${fit.spring.squeeze.toFixed(2)} mm`)
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Where the clip presses.
+//
+// The rabbet lip only covers the artwork from the sight edge out to the wall.
+// A clip that presses further in than that is pressing on nothing, and thin
+// artwork simply bulges out through the aperture — fine through a rigid backing
+// panel, not fine through paper.
+// ---------------------------------------------------------------------------
+{
+  const params = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 16, rabbetDepth: 9 })
+  for (const material of MATERIALS) {
+    const folded = clipFit(params, 3.4, 0.18, 200, material, 'folded')!
+    check(`${material.label}: a folded clip presses on the lip`,
+      !!folded && folded.span > params.rabbetWidth,
+      folded ? `foot 3 mm in, lip runs to ${params.rabbetWidth} mm` : 'no fit')
+    check(`${material.label}: folding does not cost it travel`, folded.spring.squeeze >= 2.4,
+      `${folded.spring.squeeze.toFixed(2)} mm`)
+    check(`${material.label}: folding does not cost it force`, folded.spring.force >= 2.5,
+      `${folded.spring.force.toFixed(2)} N`)
+
+    // Folding should be a strict improvement, not a compromise.
+    const straight = clipFit(params, 3.4, 0.18, 200, material, 'straight')!
+    check(`${material.label}: folded reaches less far in than straight`,
+      folded.span < straight.span,
+      `${folded.span.toFixed(1)} mm against ${straight.span.toFixed(1)} mm`)
+  }
+
+  // And choosing the straight clip without a backing has to say so.
+  const bare = await buildFrame(
+    { ...DEFAULT_CONFIG, clipStyle: 'straight', profile: params,
+      accessories: { clips: true, easel: false, hanger: false, backer: false } },
+    deps,
+  )
+  check('a straight clip with no backing is warned about',
+    bare.warnings.some((w) => /bulge|backing/i.test(w)), bare.warnings.join('; '))
+  const backed = await buildFrame(
+    { ...DEFAULT_CONFIG, clipStyle: 'straight', profile: params,
+      accessories: { clips: true, easel: false, hanger: false, backer: true } },
+    deps,
+  )
+  check('and with a backing it is not', !backed.warnings.some((w) => /bulge/i.test(w)))
+  const foldedFrame = await buildFrame(
+    { ...DEFAULT_CONFIG, profile: params,
+      accessories: { clips: true, easel: false, hanger: false, backer: false } },
+    deps,
+  )
+  check('a folded clip needs no backing and is not warned about',
+    !foldedFrame.warnings.some((w) => /bulge/i.test(w)), foldedFrame.warnings.join('; '))
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

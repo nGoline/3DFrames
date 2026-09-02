@@ -67,6 +67,15 @@ export type TextPlacement = 'bottom' | 'top'
 
 export type JointStyle = 'snap' | 'key'
 
+/**
+ * How the retaining clip reaches the artwork.
+ *
+ * 'folded' doubles back so its foot lands over the rabbet lip, where there is
+ * something behind the artwork to press against. 'straight' reaches further in
+ * and presses in mid-air, which only works if a rigid backing spans the gap.
+ */
+export type ClipStyle = 'folded' | 'straight'
+
 export interface BuildPlate {
   /**
    * Id of the chosen printer preset, or 'custom'. Stored rather than inferred,
@@ -158,6 +167,7 @@ export interface FrameConfig {
   unit: Unit
   /** Filament id — see `materials.ts`. Sets how the spring clips are sized. */
   material: string
+  clipStyle: ClipStyle
   artwork: Artwork
   plate: BuildPlate
   shape: FrameShape
