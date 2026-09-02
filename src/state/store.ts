@@ -12,6 +12,8 @@ import { buildOpeningPath, miterFrames, pathLengths } from '../core/shapes.ts'
 import { buildProfile, normaliseParams } from '../core/profiles.ts'
 import { sightSize } from '../core/sizing.ts'
 import { minimumRabbetDepth } from '../core/geometry/accessories.ts'
+import { materialById } from '../core/materials.ts'
+import { sightOf } from '../core/sizing.ts'
 import { createDisplacer } from '../core/geometry/facePattern.ts'
 import { sweep } from '../core/geometry/sweep.ts'
 import { toTriangleSoup } from '../core/geometry/mesh.ts'
@@ -103,7 +105,13 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
   setArtwork: (thickness) => {
     const config = get().config
     const profile = { ...config.profile, rabbetDepth: config.profile.rabbetDepth }
-    const needed = minimumRabbetDepth(normaliseParams(profile), thickness, config.joint.tolerance)
+    const needed = minimumRabbetDepth(
+      normaliseParams(profile),
+      thickness,
+      config.joint.tolerance,
+      Math.min(...sightOf(config)),
+      materialById(config.material),
+    )
     const rabbetDepth = Math.max(profile.rabbetDepth, Math.ceil(needed * 2) / 2)
     // The moulding has to stay thick enough to have that rabbet cut into it.
     const depth = Math.max(profile.depth, Math.ceil((rabbetDepth + 1.5) * 2) / 2)
@@ -118,7 +126,7 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
   toggleVisible: (kind) => set({ visible: { ...get().visible, [kind]: !get().visible[kind] } }),
 
   // The build plate belongs to the machine, not the design, so it survives.
-  load: (design) => set({ ...withPreview(configFrom(design, get().config.plate)), result: null }),
+  load: (design) => set({ ...withPreview(configFrom(design, get().config.plate, get().config.material)), result: null }),
 
   /**
    * A corner of the current design, downloadable without generating the whole

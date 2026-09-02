@@ -10,7 +10,7 @@ import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.t
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
 import { clipFit, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
-import { STRESS_CEILING } from '../src/core/spring.ts'
+import { MATERIALS, materialById } from '../src/core/materials.ts'
 import { FACE_PATTERNS, createDisplacer } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
@@ -492,7 +492,7 @@ console.log('')
 
   // A spring clip is only useful if it plugs into its slot and reaches past the
   // rabbet onto the artwork.
-  const fit = clipFit(p, cfg.artwork.thickness, cfg.joint.tolerance)!
+  const fit = clipFit(p, cfg.artwork.thickness, cfg.joint.tolerance, Math.min(...sightOf(cfg)), materialById(cfg.material))!
   check('spring clip slots are proportioned for this moulding', !!fit)
   check('slot leaves a floor above the back face', fit.z0 - fit.depth * fit.tilt >= 0.5,
     `${(fit.z0 - fit.depth * fit.tilt).toFixed(2)} mm`)
@@ -505,7 +505,7 @@ console.log('')
   check('leaf rests one squeeze proud of the artwork',
     Math.abs(rest - (p.rabbetDepth - cfg.artwork.thickness) - fit.spring.squeeze) < 0.05,
     `rests at ${rest.toFixed(2)}, artwork backs onto ${(p.rabbetDepth - cfg.artwork.thickness).toFixed(2)}, squeeze ${fit.spring.squeeze.toFixed(2)}`)
-  check('leaf stays under the working stress limit', fit.spring.stress <= STRESS_CEILING + 0.01,
+  check('leaf stays under the working stress limit', fit.spring.stress <= materialById(DEFAULT_CONFIG.material).working + 0.01,
     `${fit.spring.stress.toFixed(1)} MPa`)
   check('slot does not reach the outside of the moulding',
     p.rabbetWidth + fit.depth <= p.width - 1.4,
@@ -540,7 +540,7 @@ console.log('')
   // fudge factor. A leaf held permanently at anywhere near PLA's ~55 MPa yield
   // creeps and takes a set, which is a clip that stops pressing after a week.
   {
-    const E = 3000
+    const E = materialById(cfg.material).stiffness
     const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
     const stress = (3 * E * fit.spring.squeeze * fit.spring.thickness) / (2 * fit.span ** 2)
     const force = (3 * E * I * fit.spring.squeeze) / fit.span ** 3
@@ -550,8 +550,9 @@ console.log('')
     check('the leaf force is what the model says it is',
       Math.abs(force - fit.spring.force) < 0.05,
       `${force.toFixed(2)} N measured against ${fit.spring.force.toFixed(2)} claimed`)
-    check('and it is nowhere near yielding under permanent load', stress < 25,
-      `${stress.toFixed(1)} MPa, PLA yields around 55`)
+    const mat = materialById(cfg.material)
+    check('and it is nowhere near yielding under permanent load', stress < mat.yieldStress * 0.45,
+      `${stress.toFixed(1)} MPa against ${mat.label} yielding around ${mat.yieldStress}`)
   }
 
   check('the leaf presses hard enough to hold artwork', fit.spring.force >= 1.5,
@@ -829,7 +830,7 @@ console.log('')
       depth: rabbetDepth + 2,
       rabbetDepth,
     })
-    const fit = clipFit(params, thickness, DEFAULT_CONFIG.joint.tolerance)
+    const fit = clipFit(params, thickness, DEFAULT_CONFIG.joint.tolerance, 200, materialById(DEFAULT_CONFIG.material))
     if (!fit) {
       check(`${thickness} mm artwork: a clip fits`, false, `no fit at ${rabbetDepth} mm rabbet`)
       continue
@@ -843,14 +844,14 @@ console.log('')
       Math.abs(rest - back - fit.spring.squeeze) < 0.05,
       `rests at ${rest.toFixed(2)}, wanted ${(back + fit.spring.squeeze).toFixed(2)}`)
     check(`${thickness} mm artwork: spring within its stress limit`,
-      fit.spring.stress <= STRESS_CEILING + 0.01, `${fit.spring.stress.toFixed(1)} MPa`)
+      fit.spring.stress <= materialById(DEFAULT_CONFIG.material).working + 0.01, `${fit.spring.stress.toFixed(1)} MPa`)
   }
 
   // And the stated minimum has to be honest: one notch under it must not fit.
   const params = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: 6 })
   const needed = minimumRabbetDepth(params, 4.5, DEFAULT_CONFIG.joint.tolerance)
   const tooShallow = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: needed - 0.4 })
-  check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5, DEFAULT_CONFIG.joint.tolerance) === null,
+  check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5, DEFAULT_CONFIG.joint.tolerance, 200, materialById(DEFAULT_CONFIG.material)) === null,
     `a ${(needed - 0.4).toFixed(1)} mm rabbet was accepted when ${needed.toFixed(1)} mm was claimed`)
 }
 
@@ -1005,6 +1006,33 @@ console.log('')
   const items = [...strFromU8(files['3D/3dmodel.model']).matchAll(/<item [^>]*transform="([^"]*)"/g)]
   check('the test piece 3MF is arranged, not stacked', items.length === coupon.parts.length,
     `${items.length} placed of ${coupon.parts.length}`)
+}
+
+
+// ---------------------------------------------------------------------------
+// A leaf has to work in whatever it is printed in. Stiffness sets the force and
+// the working stress sets how far it may be bent, so the geometry follows the
+// filament — and the figure the panel quotes has to be true for that filament,
+// not for the one the model happened to be written around.
+// ---------------------------------------------------------------------------
+{
+  const params = normaliseParams({ ...DEFAULT_CONFIG.profile, rabbetDepth: 7.5 })
+  for (const material of MATERIALS) {
+    const fit = clipFit(params, 3.4, 0.18, 200, material)!
+    check(`${material.label}: a clip fits`, !!fit)
+    const I = (fit.spring.width * fit.spring.thickness ** 3) / 12
+    const stress = (3 * material.stiffness * fit.spring.squeeze * fit.spring.thickness) / (2 * fit.span ** 2)
+    const force = (3 * material.stiffness * I * fit.spring.squeeze) / fit.span ** 3
+    check(`${material.label}: the quoted force is true for it`,
+      Math.abs(force - fit.spring.force) < 0.05,
+      `${force.toFixed(2)} N computed against ${fit.spring.force.toFixed(2)} quoted`)
+    check(`${material.label}: worked well below yield`, stress <= material.yieldStress * 0.45,
+      `${stress.toFixed(1)} MPa, yields around ${material.yieldStress}`)
+    check(`${material.label}: presses hard enough to be worth fitting`, fit.spring.force >= 1.5,
+      `${fit.spring.force.toFixed(2)} N`)
+    check(`${material.label}: keeps its travel`, fit.spring.squeeze >= 1.8,
+      `${fit.spring.squeeze.toFixed(2)} mm`)
+  }
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

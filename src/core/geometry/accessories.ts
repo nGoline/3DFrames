@@ -5,6 +5,7 @@ import type { RawMesh } from './mesh.ts'
 import { basisTransform, extrudePolygon, transformMesh } from './primitives.ts'
 import { concat } from './joints.ts'
 import { spanForTravel, springFor, type SpringSpec } from '../spring.ts'
+import { materialById, type Material } from '../materials.ts'
 
 export interface AccessoryPart {
   id: string
@@ -307,8 +308,9 @@ export function minimumRabbetDepth(
   artwork: number,
   tolerance = 0.18,
   aperture = Infinity,
+  material = materialById('pla'),
 ): number {
-  const probe = leafFor(profile, aperture)
+  const probe = leafFor(profile, material, aperture)
   const slotDepth = slotDepthFor(profile)
   if (slotDepth === null) return artwork + 4
   const h = slotHeight(probe.thickness, tolerance)
@@ -335,16 +337,16 @@ const slotDepthFor = (profile: ProfileParams): number | null => {
 const LEAF_THICKNESS_MM = 1.8
 const LEAF_WIDTH_MM = 7.5
 
-const leafFor = (profile: ProfileParams, aperture = Infinity) => {
+const leafFor = (profile: ProfileParams, material: Material, aperture = Infinity) => {
   // Length is where compliance actually comes from, so it is derived from the
   // travel wanted rather than picked, then capped so two clips facing each
   // other across a small opening cannot meet in the middle.
-  const wanted = spanForTravel(LEAF_THICKNESS_MM, CLIP_TRAVEL_MM)
+  const wanted = spanForTravel(material, LEAF_THICKNESS_MM, CLIP_TRAVEL_MM)
   const span = Math.max(
     profile.rabbetWidth + 8,
     Math.min(wanted, CLIP_REACH_CAP_MM, aperture / 3),
   )
-  return springFor({ thickness: LEAF_THICKNESS_MM, width: LEAF_WIDTH_MM, span })
+  return springFor({ material, thickness: LEAF_THICKNESS_MM, width: LEAF_WIDTH_MM, span })
 }
 
 /**
@@ -366,11 +368,12 @@ export function clipFit(
   artwork: number,
   tolerance = 0.18,
   aperture = Infinity,
+  material = materialById('pla'),
 ): ClipFit | null {
   const depth = slotDepthFor(profile)
   if (depth === null) return null
 
-  const spring = leafFor(profile, aperture)
+  const spring = leafFor(profile, material, aperture)
   const height = slotHeight(spring.thickness, tolerance)
 
   const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /

@@ -1,4 +1,5 @@
 import type { BuildPlate, BuildResult, FrameConfig, Part, Vec2 } from './types.ts'
+import { materialById } from './materials.ts'
 import { buildOpeningPath, densifyPath, miterFrames, offsetPath, pathLengths } from './shapes.ts'
 import { buildProfile, normaliseParams } from './profiles.ts'
 import { sightOf, sightSize } from './sizing.ts'
@@ -206,9 +207,16 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   // Spring clips need a slot each, placed at the middle of every segment so
   // they never land on a joint. A one-piece frame gets four, evenly spaced.
   const artwork = Math.max(0, config.artwork.thickness)
-  const clip = config.accessories.clips ? clipFit(profileParams, artwork, config.joint.tolerance, Math.min(...sightOf(config))) : null
+  const clip = config.accessories.clips ? clipFit(
+        profileParams,
+        artwork,
+        config.joint.tolerance,
+        Math.min(...sightOf(config)),
+        materialById(config.material),
+      )
+    : null
   if (config.accessories.clips && !clip) {
-    const needed = minimumRabbetDepth(profileParams, artwork, config.joint.tolerance, Math.min(...sightOf(config)))
+    const needed = minimumRabbetDepth(profileParams, artwork, config.joint.tolerance, Math.min(...sightOf(config)), materialById(config.material))
     warnings.push(
       needed > profileParams.rabbetDepth
         ? `The rabbet is ${profileParams.rabbetDepth.toFixed(1)} mm deep, which cannot hold ${artwork.toFixed(1)} mm of artwork and leave room for a clip behind it. Deepen it to at least ${needed.toFixed(1)} mm.`

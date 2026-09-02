@@ -15,7 +15,7 @@ import { formatSize } from './units.ts'
  * so a design saved today still opens after new options are added — it simply
  * takes the defaults for anything it has never heard of.
  */
-export type Design = Omit<FrameConfig, 'plate'>
+export type Design = Omit<FrameConfig, 'plate' | 'material'>
 
 /** Bumped only for changes a merge cannot absorb. */
 export const DESIGN_VERSION = 1
@@ -28,13 +28,15 @@ export interface SavedDesign {
   design: Design
 }
 
-export const designOf = ({ plate: _plate, ...design }: FrameConfig): Design => design
+export const designOf = ({ plate: _plate, material: _material, ...design }: FrameConfig): Design =>
+  design
 
 /** A design applied over the current machine settings. */
-export const configFrom = (design: Design, plate: FrameConfig['plate']): FrameConfig => ({
-  ...design,
-  plate,
-})
+export const configFrom = (
+  design: Design,
+  plate: FrameConfig['plate'],
+  material: string,
+): FrameConfig => ({ ...design, plate, material })
 
 const num = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback

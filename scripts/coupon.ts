@@ -5,7 +5,7 @@
  * moulding holding 4.5 mm of artwork (a photo on a wooden back), with spring
  * clips. Override any of it from the command line, e.g.
  *
- *   npm run coupon -- --artwork 2 --width 24 --preset ogee
+ *   npm run coupon -- --artwork 2 --width 24 --preset ogee --material petg
  */
 import Module from 'manifold-3d'
 import opentype from 'opentype.js'
@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { buildCoupon } from '../src/core/coupon.ts'
 import { DEFAULT_CONFIG } from '../src/core/presets.ts'
 import { minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
+import { materialById } from '../src/core/materials.ts'
 import { normaliseParams } from '../src/core/profiles.ts'
 import { encode3mf } from '../src/core/export/threemf.ts'
 import { encodeStl } from '../src/core/export/stl.ts'
@@ -30,12 +31,16 @@ wasm.setup()
 const artwork = Number(arg('artwork', '4.5'))
 const width = Number(arg('width', '18'))
 const preset = arg('preset', 'classic') as ProfilePreset
+const material = arg('material', 'pla')
 
 // Deepen the rabbet to suit the artwork, exactly as the app does.
 const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, width })
-const rabbetDepth = Math.ceil(minimumRabbetDepth(probe, artwork, DEFAULT_CONFIG.joint.tolerance) * 2) / 2
+const rabbetDepth = Math.ceil(
+  minimumRabbetDepth(probe, artwork, DEFAULT_CONFIG.joint.tolerance, Infinity, materialById(material)) * 2,
+) / 2
 const config: FrameConfig = {
   ...DEFAULT_CONFIG,
+  material,
   profilePreset: preset,
   artwork: { thickness: artwork },
   profile: {
@@ -61,6 +66,7 @@ for (const part of result.parts) {
 }
 
 const p = config.profile
+console.log(`Filament      ${materialById(material).label}`)
 console.log(`Moulding      ${p.width} × ${p.depth} mm, ${preset}`)
 console.log(`Rabbet        ${p.rabbetWidth} × ${p.rabbetDepth} mm, sized for ${artwork} mm of artwork`)
 console.log(`Parts         ${result.parts.map((q) => q.name).join(', ')}`)

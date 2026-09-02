@@ -156,6 +156,8 @@ export interface Artwork {
 
 export interface FrameConfig {
   unit: Unit
+  /** Filament id — see `materials.ts`. Sets how the spring clips are sized. */
+  material: string
   artwork: Artwork
   plate: BuildPlate
   shape: FrameShape

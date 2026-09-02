@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { ProfilePoint, ProfileParams } from '../core/types.ts'
 import type { ClipFit } from '../core/geometry/accessories.ts'
+import type { Material } from '../core/materials.ts'
 
 interface Props {
   profile: ProfilePoint[]
@@ -13,6 +14,7 @@ interface Props {
   /** Shallowest rabbet that would hold this artwork with a clip behind it. */
   minRabbet: number
   clipsWanted: boolean
+  material: Material
   /** Keep the drawing in view while the rest of the panel scrolls under it. */
   pinned: boolean
   onPin: (pinned: boolean) => void
@@ -39,6 +41,7 @@ export function SectionDrawing({
   clip,
   minRabbet,
   clipsWanted,
+  material,
   pinned,
   onPin,
 }: Props) {
@@ -165,7 +168,8 @@ export function SectionDrawing({
         {verdict}
         {fits && clip ? (
           <span className="section-verdict-detail">
-            {' '}Clip presses {dim(clip.spring.squeeze)} mm, about {clip.spring.force.toFixed(1)} N.
+            {' '}Clip presses {dim(clip.spring.squeeze)} mm, about {clip.spring.force.toFixed(1)} N in{' '}
+            {material.label}.
           </span>
         ) : null}
       </p>

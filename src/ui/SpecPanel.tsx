@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useFrameStore } from '../state/store.ts'
 import { PRINTERS, SIZE_PRESETS, printerName, printersByBrand } from '../core/presets.ts'
+import { MATERIALS, materialById } from '../core/materials.ts'
 import { PROFILE_PRESETS, buildProfile, normaliseParams } from '../core/profiles.ts'
 import { clipFit, minimumRabbetDepth } from '../core/geometry/accessories.ts'
 import { ARTWORK_CLEARANCE_MM, sightOf } from '../core/sizing.ts'
@@ -30,9 +31,9 @@ export function SpecPanel() {
   const artwork = Math.max(0, config.artwork.thickness)
   const sight = sightOf({ ...config, profile: params })
   const clip = config.accessories.clips
-    ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sight))
+    ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material))
     : null
-  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance, Math.min(...sight))
+  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance, Math.min(...sight), materialById(config.material))
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100
@@ -51,6 +52,7 @@ export function SpecPanel() {
         clip={clip}
         minRabbet={minRabbet}
         clipsWanted={config.accessories.clips}
+        material={materialById(config.material)}
         pinned={pinned}
         onPin={setPinned}
       />
@@ -88,6 +90,17 @@ export function SpecPanel() {
               onChange={(e) => store.setPlate({ printer: 'custom', y: Number(e.target.value) || 180 })} />
           </Field>
         </div>
+        <Chips
+          label="Filament"
+          value={config.material}
+          options={MATERIALS.map((m) => ({ id: m.id, label: m.label, blurb: m.blurb }))}
+          onChange={(material) => store.set({ material })}
+        />
+        <p className="hint">
+          Only the spring clips depend on this, but they depend on it entirely: a leaf is
+          sized from how stiff the filament is and how hard it can be worked without
+          taking a set. Everything else prints the same.
+        </p>
         <Switch
           checked={config.plate.smartOrientation}
           onChange={(v) => store.setPlate({ smartOrientation: v })}

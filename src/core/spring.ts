@@ -1,3 +1,5 @@
+import type { Material } from './materials.ts'
+
 /**
  * The retaining clip, as a spring rather than a shape.
  *
@@ -15,14 +17,6 @@
  * artwork. Everything else is a consequence.
  */
 
-/** Young's modulus of PLA, in MPa. Conservative — it varies with print settings. */
-const E_PLA = 3000
-/**
- * Working stress limit, in MPa. PLA yields around 55; a third of that leaves
- * room for layer adhesion being weaker than bulk material, and for the leaf
- * being deflected repeatedly rather than once.
- */
-const STRESS_LIMIT = 18
 /**
  * Force each clip should press with, in newtons. Set above what the leaf can
  * reach, so the geometry runs against the stress limit rather than against this
@@ -50,6 +44,8 @@ const TARGET_FORCE = 4
  */
 
 export interface Leaf {
+  /** What it will be printed in. Stiffness and working stress come from this. */
+  material: Material
   /** Leaf thickness, in mm. */
   thickness: number
   /** Leaf width, in mm. */
@@ -73,11 +69,11 @@ const secondMoment = (leaf: Leaf) => (leaf.width * leaf.thickness ** 3) / 12
 
 /** Deflection that produces a given force. */
 const deflectionFor = (leaf: Leaf, length: number, force: number) =>
-  (force * length ** 3) / (3 * E_PLA * secondMoment(leaf))
+  (force * length ** 3) / (3 * leaf.material.stiffness * secondMoment(leaf))
 
 /** Peak bending stress at a given deflection. */
 const stressAt = (leaf: Leaf, length: number, deflection: number) =>
-  (3 * E_PLA * deflection * leaf.thickness) / (2 * length ** 2)
+  (3 * leaf.material.stiffness * deflection * leaf.thickness) / (2 * length ** 2)
 
 /**
  * Work out how far a leaf has to be squeezed to press with the target force,
@@ -89,10 +85,10 @@ export function springFor(leaf: Leaf): SpringSpec {
   const length = leaf.span
   let squeeze = deflectionFor(leaf, length, TARGET_FORCE)
 
-  const limit = (STRESS_LIMIT * 2 * length ** 2) / (3 * E_PLA * leaf.thickness)
+  const limit = (leaf.material.working * 2 * length ** 2) / (3 * leaf.material.stiffness * leaf.thickness)
   if (squeeze > limit) squeeze = limit
 
-  const force = (3 * E_PLA * secondMoment(leaf) * squeeze) / length ** 3
+  const force = (3 * leaf.material.stiffness * secondMoment(leaf) * squeeze) / length ** 3
   return {
     ...leaf,
     length,
@@ -104,14 +100,14 @@ export function springFor(leaf: Leaf): SpringSpec {
 
 /** Deflection at which the leaf would reach the working stress limit. */
 export const squeezeLimit = (leaf: Leaf): number =>
-  (STRESS_LIMIT * 2 * leaf.span ** 2) / (3 * E_PLA * leaf.thickness)
+  (leaf.material.working * 2 * leaf.span ** 2) / (3 * leaf.material.stiffness * leaf.thickness)
 
 /**
  * The span a leaf needs to reach a given travel without exceeding the working
  * stress. Travel is what tolerates a mis-measured stack, so it is the thing
  * worth solving for; the force that comes with it is 3·w·t²/span.
  */
-export const spanForTravel = (thickness: number, travel: number): number =>
-  Math.sqrt((3 * E_PLA * thickness * travel) / (2 * STRESS_LIMIT))
+export const spanForTravel = (material: Material, thickness: number, travel: number): number =>
+  Math.sqrt((3 * material.stiffness * thickness * travel) / (2 * material.working))
 
-export const STRESS_CEILING = STRESS_LIMIT
+
