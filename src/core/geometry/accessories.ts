@@ -239,6 +239,23 @@ const CLIP_SLOT_W = 9
 const FLOOR_MM = 0.8
 /** Material kept between the top of the slot and the back of the artwork. */
 const HEADROOM_MM = 0.3
+/** Clearance at the mouth of the slot, per face, so the tang starts easily. */
+const CLIP_FIT_MM = 0.15
+/**
+ * Interference per face where the tang's tip comes to rest. The slot narrows
+ * over its depth so the tang wedges as it goes home instead of rattling in a
+ * parallel hole, and the working load helps rather than hinders: the leaf
+ * pressing the artwork forward rocks the tang against the taper.
+ *
+ * Measured at the tip rather than at the back of the slot, because the tang is
+ * shorter than the slot and would otherwise stop before the taper closed on it.
+ */
+const CLIP_GRIP_MM = 0.06
+/** How far short of the slot's back the tang stops. */
+const TANG_BACKOFF_MM = 0.8
+
+/** Slot height at its mouth, for a leaf of the given thickness. */
+const slotHeight = (thickness: number) => thickness + 2 * CLIP_FIT_MM
 /** How far the leaf reaches past the rabbet wall, over the artwork. */
 const CLIP_REACH_MM = 12
 
@@ -268,7 +285,7 @@ export function minimumRabbetDepth(profile: ProfileParams, artwork: number): num
   const probe = leafFor(profile)
   const slotDepth = slotDepthFor(profile)
   if (slotDepth === null) return artwork + 4
-  const h = probe.thickness + 0.4
+  const h = slotHeight(probe.thickness)
   const k = slotDepth / (slotDepth + probe.span)
   // Substituting the tilt below into `floor + slotDepth·tanθ + h + headroom ≤
   // rabbet − artwork` and solving for the rabbet:
@@ -318,7 +335,7 @@ export function clipFit(profile: ProfileParams, artwork: number): ClipFit | null
   if (depth === null) return null
 
   const spring = leafFor(profile)
-  const height = spring.thickness + 0.4
+  const height = slotHeight(spring.thickness)
 
   const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /
     (depth + spring.span)
@@ -335,16 +352,17 @@ export function clipFit(profile: ProfileParams, artwork: number): ClipFit | null
  * The slots, to be subtracted from the frame. Disjoint boxes, so they can be
  * handed over as one mesh.
  */
-export function clipSlots(
-  ctx: AccessoryContext,
-  fit: ClipFit,
-  where: number[],
-  tolerance: number,
-): RawMesh | null {
+export function clipSlots(ctx: AccessoryContext, fit: ClipFit, where: number[]): RawMesh | null {
   const tilt = fit.tilt
   const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)
-  const h = fit.height + 2 * tolerance
-  const z0 = fit.z0 - tolerance
+  // The clearance is already in `fit.height`; adding the joint tolerance again
+  // here was double-counting it and left the tang rattling.
+  const h = fit.height
+  const z0 = fit.z0
+  // Close the slot up so it reaches its interference exactly where the tang's
+  // tip lands, then carry that gradient on to the back of the slot.
+  const tang = fit.depth - TANG_BACKOFF_MM
+  const taper = ((h - (fit.thickness - 2 * CLIP_GRIP_MM)) * fit.depth) / tang
 
   let merged: RawMesh | null = null
   for (const j of where) {
@@ -353,8 +371,8 @@ export function clipSlots(
     // pushed into it points forward and has to be sprung back by the artwork.
     const poly: Vec2[] = [
       [z0, 0],
-      [z0 - fit.depth * tilt, fit.depth],
-      [z0 + h - fit.depth * tilt, fit.depth],
+      [z0 - fit.depth * tilt + taper / 2, fit.depth],
+      [z0 + h - fit.depth * tilt - taper / 2, fit.depth],
       [z0 + h, 0],
     ]
     const tangent: [number, number, number] = [-dir[1], dir[0], 0]
@@ -386,11 +404,10 @@ export function clipSlots(
 export function buildClip(
   ctx: AccessoryContext,
   fit: ClipFit,
-  tolerance: number,
   at: number,
 ): { mesh: RawMesh; print: number[] } {
-  const tangLength = fit.depth - 0.8
-  const tangWidth = CLIP_SLOT_W - 2 * tolerance - 0.2
+  const tangLength = fit.depth - TANG_BACKOFF_MM
+  const tangWidth = CLIP_SLOT_W - 2 * CLIP_FIT_MM
   const armLength = fit.span
   const armWidth = 4.4
   const amplitude = 2.6
@@ -435,7 +452,8 @@ export function buildClip(
   const az: [number, number, number] = [dir[0] * sin, dir[1] * sin, cos]
 
   const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)[at]
-  const m = basisTransform(ax, ay, az, [wall[0], wall[1], fit.z0 + tolerance])
+  // Centred in the mouth of the slot, which is where it enters.
+  const m = basisTransform(ax, ay, az, [wall[0], wall[1], fit.z0 + CLIP_FIT_MM])
 
   return {
     mesh: transformMesh(extrudePolygon(poly, fit.thickness), m),

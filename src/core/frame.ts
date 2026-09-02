@@ -226,7 +226,7 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
       ? [0, 1, 2, 3].map((k) => Math.round((k * path.points.length) / 4))
       : plan.segments.map((seg) => seg.indices[Math.floor(seg.indices.length / 2)])
     for (const j of spots) if (!clipWhere.includes(j)) clipWhere.push(j)
-    const slots = clipSlots(ctx, clip, clipWhere, config.joint.tolerance)
+    const slots = clipSlots(ctx, clip, clipWhere)
     if (slots) {
       const cut = toManifold(kernel, slots)
       segments = segments.map((seg) => (boxesOverlap(seg, cut) ? seg.subtract(cut) : seg))
@@ -298,7 +298,7 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   }
   if (clip) {
     clipWhere.forEach((at, i) => {
-      const made = buildClip(ctx, clip, config.joint.tolerance, at)
+      const made = buildClip(ctx, clip, at)
       parts.push(makePart(`clip-${i}`, `Spring clip ${i + 1}`, 'accessory', made.mesh, made.print))
     })
     notes.push(

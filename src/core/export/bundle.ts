@@ -108,9 +108,12 @@ function printingGuide(result: BuildResult, config: FrameConfig, title: string):
   if (config.accessories.clips) {
     lines.push(
       '  With the artwork and backing in, push a spring clip into each slot in',
-      '  the rabbet wall, leaf first, so the leaf bears on the back of the',
+      '  the rabbet wall, tang first, so the leaf bears on the back of the',
       '  stack. The slot is tilted, so the clip springs as it goes home — that',
       '  is what holds the artwork against the front of the rabbet.',
+      '  The slot narrows as it goes: the tang starts freely and then wedges',
+      '  over the last couple of millimetres. It should need a firm push. If a',
+      '  clip will not seat, scale it down about 1%; if one drops out, scale up.',
     )
   }
   if (config.accessories.hanger) lines.push('  Glue the keyhole hanger centred on the back of the top rail.')

@@ -491,6 +491,7 @@ console.log('')
 
   // A spring clip is only useful if it plugs into its slot and reaches past the
   // rabbet onto the artwork.
+  const CLIP_SLOT_WIDTH = 9
   const fit = clipFit(p, cfg.artwork.thickness)!
   check('spring clip slots are proportioned for this moulding', !!fit)
   check('slot leaves a floor above the back face', fit.z0 - fit.depth * fit.tilt >= 0.5,
@@ -512,6 +513,25 @@ console.log('')
 
   // Measured lying flat, since installed the clip is rotated into its slot and
   // its world-axis extents no longer mean length or thickness.
+  // The slot is a wedge: free at the mouth so the tang starts, closing to a
+  // real interference where the tip rests. A parallel slot holds nothing, which
+  // is how the clips fell out of the first printed frame.
+  {
+    const CLIP_FIT = 0.15
+    const CLIP_GRIP = 0.06
+    const tang = fit.depth - 0.8
+    const taper = ((fit.height - (fit.thickness - 2 * CLIP_GRIP)) * fit.depth) / tang
+    const heightAt = (x: number) => fit.height - taper * (x / fit.depth)
+    check('the clip slot is open at its mouth', heightAt(0) - fit.thickness > 0.1,
+      `${((heightAt(0) - fit.thickness) / 2).toFixed(3)} mm per face`)
+    check('and grips where the tang tip rests', fit.thickness - heightAt(tang) >= 0.1,
+      `${((fit.thickness - heightAt(tang)) / 2).toFixed(3)} mm interference per face`)
+    check('the wedge is gradual enough to push in', taper / fit.depth < 0.2,
+      `closes ${taper.toFixed(2)} mm over ${fit.depth} mm`)
+    check('the tang is a close fit sideways', (CLIP_SLOT_WIDTH - (CLIP_SLOT_WIDTH - 2 * CLIP_FIT)) / 2 <= 0.16,
+      `${CLIP_FIT.toFixed(2)} mm per side`)
+  }
+
   for (const c of named('Spring clip')) {
     const pos = orientForPrint(c)
     const lo = [Infinity, Infinity, Infinity]
