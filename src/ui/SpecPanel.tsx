@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useFrameStore } from '../state/store.ts'
 import { PRINTERS, SIZE_PRESETS, printerName, printersByBrand } from '../core/presets.ts'
 import { PROFILE_PRESETS, buildProfile, normaliseParams } from '../core/profiles.ts'
@@ -21,6 +21,7 @@ export function SpecPanel() {
   const config = useFrameStore((s) => s.config)
   const store = useFrameStore()
   const [open, setOpen] = useState<string | null>('size')
+  const [pinned, setPinned] = usePinned()
 
   const params = normaliseParams(config.profile)
   const profile = buildProfile(config.profilePreset, params, config.quality)
@@ -48,6 +49,8 @@ export function SpecPanel() {
         clip={clip}
         minRabbet={minRabbet}
         clipsWanted={config.accessories.clips}
+        pinned={pinned}
+        onPin={setPinned}
       />
 
       <Row id="printer" open={open} onToggle={toggle} label="Printer"
@@ -322,6 +325,25 @@ export function SpecPanel() {
       </footer>
     </aside>
   )
+}
+
+/** Remembers whether the drawing is pinned, so it survives a reload. */
+function usePinned(): [boolean, (v: boolean) => void] {
+  const [pinned, setPinned] = useState(() => {
+    try {
+      return localStorage.getItem('3dframes:pin-section') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('3dframes:pin-section', pinned ? '1' : '0')
+    } catch {
+      // Private browsing; the choice just will not persist.
+    }
+  }, [pinned])
+  return [pinned, setPinned]
 }
 
 function Row({

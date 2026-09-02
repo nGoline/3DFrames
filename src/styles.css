@@ -332,16 +332,53 @@ input[type='range']::-moz-range-thumb {
   padding: 10px 12px 6px;
 }
 
+/* Pinned, the drawing holds its place while the controls scroll under it —
+   which is the only way to watch the edge change as you drag a slider. */
+.section-plate.pinned {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.45);
+}
+
+.section-plate figcaption .pin {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -4px -4px -4px 2px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--lead-1);
+  cursor: pointer;
+}
+.section-plate figcaption .pin svg { width: 13px; height: 13px; fill: currentColor; }
+.section-plate figcaption .pin:hover { color: var(--lead-6); background: var(--film-3); }
+.section-plate figcaption .pin[aria-pressed='true'] { color: var(--blue); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .section-plate figcaption {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
+  gap: 8px;
   font-size: 10.5px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--lead-4);
   margin-bottom: 4px;
 }
+.section-plate figcaption > span:first-child { flex: 1; }
 .section-plate figcaption b { color: var(--lead-6); font-weight: 600; letter-spacing: 0.04em; }
 
 .section-svg { display: block; width: 100%; height: auto; }

@@ -13,6 +13,9 @@ interface Props {
   /** Shallowest rabbet that would hold this artwork with a clip behind it. */
   minRabbet: number
   clipsWanted: boolean
+  /** Keep the drawing in view while the rest of the panel scrolls under it. */
+  pinned: boolean
+  onPin: (pinned: boolean) => void
 }
 
 const PAD = { l: 17, r: 13, t: 13, b: 19 }
@@ -36,6 +39,8 @@ export function SectionDrawing({
   clip,
   minRabbet,
   clipsWanted,
+  pinned,
+  onPin,
 }: Props) {
   // How far the leaf reaches inward past the sight edge.
   const reach = clip ? Math.max(0, clip.span - params.rabbetWidth) + 2 : 0
@@ -83,10 +88,22 @@ export function SectionDrawing({
         : `Rabbet needs ${dim(minRabbet)} mm to hold ${dim(artwork)} mm of artwork and a clip behind it.`
 
   return (
-    <figure className="section-plate">
+    <figure className={`section-plate${pinned ? ' pinned' : ''}`}>
       <figcaption>
         <span>The frame edge, full size</span>
         <b>{presetLabel}</b>
+        <button
+          type="button"
+          className="pin"
+          aria-pressed={pinned}
+          title={pinned ? 'Let the drawing scroll away' : 'Keep the drawing in view while you work'}
+          onClick={() => onPin(!pinned)}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 1.5h4l-.6 4.2 2.6 2.3H9.2L8 14.5 6.8 8H3l2.6-2.3z" />
+          </svg>
+          <span className="visually-hidden">{pinned ? 'Unpin the frame edge' : 'Pin the frame edge'}</span>
+        </button>
       </figcaption>
       <svg
         className="section-svg"
