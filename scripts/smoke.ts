@@ -152,7 +152,8 @@ for (const { id: shape } of FRAME_SHAPES) {
 import { readFileSync } from 'node:fs'
 import opentype from 'opentype.js'
 import { buildFrame } from '../src/core/frame.ts'
-import { DEFAULT_CONFIG, PRINTERS } from '../src/core/presets.ts'
+import { DEFAULT_CONFIG, PRINTERS, SIZE_PRESETS } from '../src/core/presets.ts'
+import { ARTWORK_CLEARANCE_MM, holdsArtwork, sightOf, sightSize } from '../src/core/sizing.ts'
 import { encodeStl, encodeCombinedStl } from '../src/core/export/stl.ts'
 import { encode3mf } from '../src/core/export/threemf.ts'
 import { unzipSync, strFromU8 } from 'fflate'
@@ -372,7 +373,8 @@ console.log('')
   const nominal = (cfg: FrameConfig) => {
     const params = normaliseParams(cfg.profile)
     const profile = buildProfile(cfg.profilePreset, params, cfg.quality)
-    const path = buildOpeningPath(cfg.shape, cfg.interiorWidth, cfg.interiorHeight, cfg.quality)
+    // The swept opening is the sight, which the interior and rabbet determine.
+    const path = buildOpeningPath(cfg.shape, ...sightOf(cfg), cfg.quality)
     const frames = miterFrames(path.points)
     const { at } = pathLengths(path.points)
     const raw = sweep({ points: path.points, frames, arc: at, profile, faceStart: 3, displacer: null, closed: true })
@@ -481,8 +483,8 @@ console.log('')
     check(`${stand.name} sits behind the frame`, back > front * 3,
       `${back.toFixed(1)} mm behind vs ${front.toFixed(1)} mm in front`)
     check(`${stand.name} grips the bottom rail`,
-      stand.bounds.max[1] > -cfg.interiorHeight / 2 - p.width + 4 &&
-        stand.bounds.max[1] < -cfg.interiorHeight / 2,
+      stand.bounds.max[1] > -sightOf(cfg)[1] / 2 - p.width + 4 &&
+        stand.bounds.max[1] < -sightOf(cfg)[1] / 2,
       `top at y ${stand.bounds.max[1].toFixed(1)}`)
   }
 
@@ -551,7 +553,7 @@ console.log('')
 
   const hanger = named('Keyhole hanger')[0]
   if (hanger) {
-    const railLo = cfg.interiorHeight / 2
+    const railLo = sightOf(cfg)[1] / 2
     check('Keyhole hanger fits within the top rail',
       hanger.bounds.min[1] >= railLo - 0.01 && hanger.bounds.max[1] <= railLo + p.width + 0.01,
       `y ${hanger.bounds.min[1].toFixed(1)}..${hanger.bounds.max[1].toFixed(1)}`)
@@ -789,6 +791,40 @@ console.log('')
   const tooShallow = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: needed - 0.4 })
   check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5) === null,
     `a ${(needed - 0.4).toFixed(1)} mm rabbet was accepted when ${needed.toFixed(1)} mm was claimed`)
+}
+
+
+// ---------------------------------------------------------------------------
+// A frame has to hold the artwork it was built for.
+//
+// The interior is the pocket the artwork drops into, so the artwork must be
+// smaller than it — and larger than the sight opening, or nothing covers its
+// edges and it drops straight out of the back. Asking for the sight size
+// instead is the trap this guards: a 200 x 250 print entered as a 200 x 250
+// sight leaves a 212 x 262 pocket and falls through.
+// ---------------------------------------------------------------------------
+{
+  for (const preset of SIZE_PRESETS) {
+    const artwork: [number, number] = [preset.w - ARTWORK_CLEARANCE_MM, preset.h - ARTWORK_CLEARANCE_MM]
+    for (const rabbetWidth of [3, 6, 12]) {
+      const held =
+        holdsArtwork(preset.w, rabbetWidth, artwork[0]) &&
+        holdsArtwork(preset.h, rabbetWidth, artwork[1])
+      check(`${preset.label} artwork is held at a ${rabbetWidth} mm rabbet`, held,
+        `sight ${sightSize(preset.w, rabbetWidth).toFixed(1)} × ${sightSize(preset.h, rabbetWidth).toFixed(1)}, artwork ${artwork.map((v) => v.toFixed(1)).join(' × ')}`)
+    }
+  }
+
+  // The sight the geometry actually produces must match what the panel promises.
+  const cfg: FrameConfig = { ...DEFAULT_CONFIG, interiorWidth: 200.2, interiorHeight: 250.2 }
+  const r = await buildFrame(cfg, deps)
+  const [sw, sh] = sightOf(cfg)
+  const expected: [number, number] = [sw + 2 * cfg.profile.width, sh + 2 * cfg.profile.width]
+  check('the built frame matches the promised sight opening',
+    Math.abs(r.outerSize[0] - expected[0]) < 0.05 && Math.abs(r.outerSize[1] - expected[1]) < 0.05,
+    `outer ${r.outerSize.map((v) => v.toFixed(1)).join(' × ')}, expected ${expected.map((v) => v.toFixed(1)).join(' × ')}`)
+  check('a 200 × 250 print is held by a 200.2 × 250.2 interior',
+    holdsArtwork(200.2, cfg.profile.rabbetWidth, 200) && holdsArtwork(250.2, cfg.profile.rabbetWidth, 250))
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

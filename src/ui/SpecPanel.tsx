@@ -3,6 +3,7 @@ import { useFrameStore } from '../state/store.ts'
 import { PRINTERS, SIZE_PRESETS, printerName, printersByBrand } from '../core/presets.ts'
 import { PROFILE_PRESETS, buildProfile, normaliseParams } from '../core/profiles.ts'
 import { clipFit, minimumRabbetDepth } from '../core/geometry/accessories.ts'
+import { ARTWORK_CLEARANCE_MM, sightOf } from '../core/sizing.ts'
 import { FRAME_SHAPES } from '../core/shapes.ts'
 import { FACE_PATTERNS } from '../core/geometry/facePattern.ts'
 import { FONTS } from '../core/geometry/text.ts'
@@ -28,6 +29,7 @@ export function SpecPanel() {
   const artwork = Math.max(0, config.artwork.thickness)
   const clip = config.accessories.clips ? clipFit(params, artwork) : null
   const minRabbet = minimumRabbetDepth(params, artwork)
+  const sight = sightOf({ ...config, profile: params })
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
   const round = (mm: number) => Math.round(fromMm(mm, config.unit) * 100) / 100
@@ -102,7 +104,7 @@ export function SpecPanel() {
         />
       </Row>
 
-      <Row id="size" open={open} onToggle={toggle} label="Sight size"
+      <Row id="size" open={open} onToggle={toggle} label="Interior size"
         value={formatSize(config.interiorWidth, config.interiorHeight, config.unit)}>
         <Field label="Units">
           <div className="chips">
@@ -128,11 +130,12 @@ export function SpecPanel() {
           </Field>
         </div>
         <p className="hint">
-          This is what you will see of the artwork. The print itself needs to be about{' '}
-          {formatSize(config.interiorWidth + params.rabbetWidth * 2, config.interiorHeight + params.rabbetWidth * 2, config.unit)}{' '}
-          so its edges stay trapped under the rabbet.
+          The pocket your artwork drops into — measure the artwork and add about{' '}
+          {ARTWORK_CLEARANCE_MM} mm. The frame then covers{' '}
+          {Math.round(params.rabbetWidth * 10) / 10} mm of each edge, leaving{' '}
+          <b>{formatSize(sight[0], sight[1], config.unit)}</b> on show.
         </p>
-        <Field label="Common sizes">
+        <Field label="Common artwork sizes">
           <div className="chips">
             {SIZE_PRESETS.map((p) => (
               <button key={p.id} type="button" className="chip"
@@ -184,9 +187,10 @@ export function SpecPanel() {
           hint="How broad the frame looks from the front." />
         <Slider label="Thickness" value={config.profile.depth} min={4} max={45} step={0.5}
           onChange={(depth) => store.setProfile({ depth })} />
-        <Slider label="Rabbet width" value={config.profile.rabbetWidth} min={1} max={Math.max(2, params.width - 2)} step={0.5}
+        <Slider label="Rabbet width" value={config.profile.rabbetWidth} min={1}
+          max={Math.max(2, Math.min(params.width - 2, config.interiorWidth / 2 - 2))} step={0.5}
           onChange={(rabbetWidth) => store.setProfile({ rabbetWidth })}
-          hint="How far the frame overlaps the artwork on every side." />
+          hint={`How much of the artwork the frame covers on each edge. More is more secure and shows less: at ${Math.round(params.rabbetWidth * 10) / 10} mm you see ${formatSize(sight[0], sight[1], config.unit)} of it.`} />
         <Slider label="Rabbet depth" value={config.profile.rabbetDepth}
           min={Math.round(minRabbet * 10) / 10}
           max={Math.max(minRabbet + 1, params.depth - 1.5)} step={0.5}

@@ -6,6 +6,7 @@ import { loadManifold } from '../core/manifoldLoader.ts'
 import { loadFont } from '../fontLoader.ts'
 import { buildOpeningPath, miterFrames, pathLengths } from '../core/shapes.ts'
 import { buildProfile, normaliseParams } from '../core/profiles.ts'
+import { sightSize } from '../core/sizing.ts'
 import { minimumRabbetDepth } from '../core/geometry/accessories.ts'
 import { createDisplacer } from '../core/geometry/facePattern.ts'
 import { sweep } from '../core/geometry/sweep.ts'
@@ -46,7 +47,12 @@ interface FrameStore {
 function computePreview(config: FrameConfig): Float32Array {
   const params = normaliseParams(config.profile)
   const profile = buildProfile(config.profilePreset, params, config.quality)
-  const path = buildOpeningPath(config.shape, config.interiorWidth, config.interiorHeight, config.quality)
+  const path = buildOpeningPath(
+      config.shape,
+      sightSize(config.interiorWidth, params.rabbetWidth),
+      sightSize(config.interiorHeight, params.rabbetWidth),
+      config.quality,
+    )
   const frames = miterFrames(path.points)
   const { at, total } = pathLengths(path.points)
   return toTriangleSoup(

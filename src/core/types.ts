@@ -5,9 +5,9 @@
  *   - All internal geometry is in millimetres. The UI converts at the edges.
  *   - The frame lies in the XY plane, centred on the origin, with the back face
  *     on Z = 0 and the decorative front face toward +Z.
- *   - "Interior" / "sight size" is the visible aperture: what the viewer sees of
- *     the artwork. The artwork itself is larger, because it is trapped behind
- *     the rabbet.
+ *   - "Interior" is the pocket the artwork sits in. "Sight" is what you see of
+ *     it once the frame covers its edges. The artwork is between the two: it
+ *     must fit the interior, and overlap the sight.
  */
 
 export type Unit = 'mm' | 'in'
@@ -159,9 +159,13 @@ export interface FrameConfig {
   artwork: Artwork
   plate: BuildPlate
   shape: FrameShape
-  /** Interior aperture width (mm). */
+  /**
+   * Width of the pocket the artwork drops into, in mm — not the visible
+   * opening. See `sizing.ts`; the visible opening is this less the rabbet on
+   * each side.
+   */
   interiorWidth: number
-  /** Interior aperture height (mm). */
+  /** Height of the pocket the artwork drops into, in mm. */
   interiorHeight: number
   profilePreset: ProfilePreset
   profile: ProfileParams

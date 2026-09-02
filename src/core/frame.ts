@@ -1,6 +1,7 @@
 import type { BuildPlate, BuildResult, FrameConfig, Part, Vec2 } from './types.ts'
 import { buildOpeningPath, densifyPath, miterFrames, offsetPath, pathLengths } from './shapes.ts'
 import { buildProfile, normaliseParams } from './profiles.ts'
+import { sightSize } from './sizing.ts'
 import { createDisplacer } from './geometry/facePattern.ts'
 import { sweep } from './geometry/sweep.ts'
 import { planSplit } from './geometry/split.ts'
@@ -50,7 +51,12 @@ export async function buildFrame(config: FrameConfig, deps: BuildDeps): Promise<
   // Give the splitter somewhere to cut: seams can only land on path vertices,
   // so long rails need interior points before they can be divided.
   const path = densifyPath(
-    buildOpeningPath(config.shape, config.interiorWidth, config.interiorHeight, config.quality),
+    buildOpeningPath(
+      config.shape,
+      sightSize(config.interiorWidth, profileParams.rabbetWidth),
+      sightSize(config.interiorHeight, profileParams.rabbetWidth),
+      config.quality,
+    ),
     Math.min(config.plate.x, config.plate.y) / 3,
   )
   const frames = miterFrames(path.points)

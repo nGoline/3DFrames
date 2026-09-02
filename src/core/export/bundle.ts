@@ -3,6 +3,7 @@ import type { BuildResult, FrameConfig, Part } from '../types.ts'
 import { encode3mf } from './threemf.ts'
 import { encodeCombinedStl, encodeStl } from './stl.ts'
 import { formatSize } from '../units.ts'
+import { sightOf } from '../sizing.ts'
 import { orientForPrint } from '../print.ts'
 
 const safe = (name: string) => name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()
@@ -44,8 +45,10 @@ function printingGuide(result: BuildResult, config: FrameConfig, title: string):
     title,
     '='.repeat(title.length),
     '',
-    `Interior (sight) size : ${formatSize(config.interiorWidth, config.interiorHeight, config.unit)}`,
+    `Interior (the pocket) : ${formatSize(config.interiorWidth, config.interiorHeight, config.unit)}`,
+    `Sight (what shows)    : ${formatSize(sightOf(config)[0], sightOf(config)[1], config.unit)}`,
     `Outer size            : ${formatSize(result.outerSize[0], result.outerSize[1], config.unit)}`,
+    `Artwork it takes      : up to ${formatSize(config.interiorWidth, config.interiorHeight, config.unit)}, ${config.artwork.thickness.toFixed(1)} mm thick`,
     `Moulding              : ${config.profilePreset}, ${config.profile.width.toFixed(1)} mm wide × ${config.profile.depth.toFixed(1)} mm thick`,
     `Rabbet                : ${config.profile.rabbetWidth.toFixed(1)} mm × ${config.profile.rabbetDepth.toFixed(1)} mm deep`,
     `Build plate           : ${config.plate.x} × ${config.plate.y} × ${config.plate.z} mm`,
