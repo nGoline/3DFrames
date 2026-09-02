@@ -9,7 +9,7 @@ import Module from 'manifold-3d'
 import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.ts'
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
-import { clipFit, foldedPath, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
+import { clipFit, clipFitFor, foldedPath, minimumRabbetDepth } from '../src/core/geometry/accessories.ts'
 import { MATERIALS, materialById } from '../src/core/materials.ts'
 import { FACE_PATTERNS, createDisplacer } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
@@ -548,7 +548,7 @@ console.log('')
   // running tight, stopped halfway — costing the leaf most of its travel and so
   // most of its force.
   {
-    const CLIP_GRIP = 0.03
+    const CLIP_GRIP = 0.06
     const tang = fit.depth - 0.8
     const wedgeAt = Math.max(fit.depth * 0.3, tang - 2)
     const taper = ((fit.height - (fit.thickness - 2 * CLIP_GRIP)) * (fit.depth - wedgeAt)) / (tang - wedgeAt)
@@ -556,13 +556,16 @@ console.log('')
 
     check('the clip slides most of the way in', wedgeAt / tang > 0.5,
       `parallel for ${wedgeAt.toFixed(1)} of ${tang.toFixed(1)} mm`)
-    // A machine printing 0.15 mm oversized still has to get the tang past the
-    // parallel section, or it will stop short and lose its travel.
-    check('and still slides with a tight-running printer',
-      (heightAt(wedgeAt) - (fit.thickness + 0.3)) / 2 > 0,
-      `${((heightAt(wedgeAt) - (fit.thickness + 0.3)) / 2).toFixed(3)} mm to spare per face`)
-    check('then grips where the tang tip rests', fit.thickness - heightAt(tang) >= 0.04,
+    // Snug, not roomy. A printed clip that rattles in its slot falls out, and
+    // that is a worse failure than one that needs a firm push — so the parallel
+    // section is held to a slip fit rather than given room for print error.
+    const slip = (heightAt(wedgeAt) - fit.thickness) / 2
+    check('and is a snug fit along that section', slip > 0.02 && slip <= 0.1,
+      `${slip.toFixed(3)} mm per face`)
+    check('then grips where the tang tip rests', fit.thickness - heightAt(tang) >= 0.08,
       `${((fit.thickness - heightAt(tang)) / 2).toFixed(3)} mm interference per face`)
+    check('and is snug sideways too', clipFitFor(cfg.joint.tolerance) <= 0.1,
+      `${clipFitFor(cfg.joint.tolerance).toFixed(3)} mm per side`)
   }
 
   // A clip that fits but barely presses is no use; this is what was reported.

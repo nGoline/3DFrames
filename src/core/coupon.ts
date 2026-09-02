@@ -35,7 +35,14 @@ const LEG_MM = 20
 
 const COLORS = { snap: '#c08a52', key: '#a8794a', clip: '#8a8f7a', butterfly: '#6b7f8f' }
 
-export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise<BuildResult> {
+/** Which parts of the coupon to build. */
+export type CouponScope = 'all' | 'clip' | 'joint'
+
+export async function buildCoupon(
+  config: FrameConfig,
+  deps: BuildDeps,
+  scope: CouponScope = 'all',
+): Promise<BuildResult> {
   const { kernel } = deps
   const params = normaliseParams(config.profile)
   const profile = buildProfile(config.profilePreset, params, config.quality)
@@ -62,10 +69,16 @@ export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise
   const artwork = Math.max(0, config.artwork.thickness)
   const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance, Math.min(...sightOf(config)), materialById(config.material), config.clipStyle) : null
 
-  for (const [style, offset] of [
-    ['snap', 0],
-    ['key', params.width * 2 + LEG_MM + 14],
-  ] as const) {
+  // Re-testing one thing should not mean reprinting all of it. The clip scope
+  // drops both joints and the second leg, which is most of the plastic.
+  const styles = (
+    [
+      ['snap', 0],
+      ['key', params.width * 2 + LEG_MM + 14],
+    ] as const
+  ).filter(([style]) => scope === 'all' || (scope === 'joint' ? true : style === 'snap'))
+
+  for (const [style, offset] of styles) {
     // No reach limit: the coupon has to carry the joint a real frame would use,
     // not a shortened one that would tell you nothing.
     const joint = buildJoint(path.points[corner], frames[corner], profile, { ...config.joint, style })
@@ -126,6 +139,10 @@ export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise
       }
     }
 
+    // The clip's slot is on the first leg, so the second is only there for the
+    // joint. Drop it when the joint is not what is being checked.
+    if (scope === 'clip') legs = legs.slice(0, 1)
+
     legs.forEach((leg, i) => {
       // Take the rail's direction from the leg's straight end, not the mitre.
       const d = frames[i === 0 ? runs[0][0] : runs[1][1]].dir
@@ -145,9 +162,11 @@ export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise
 
   const volume = parts.reduce((sum, p) => sum + volumeOf(p.positions), 0) / 1000
   notes.push(
-    `Test piece: one corner of your ${params.width} × ${params.depth} mm moulding, in both joint styles, at full size.`,
+    scope === 'clip'
+      ? `Clip fit test: one stub of your ${params.width} × ${params.depth} mm moulding with its slot, and the clip.`
+      : `Test piece: one corner of your ${params.width} × ${params.depth} mm moulding, in both joint styles, at full size.`,
     `About ${volume.toFixed(0)} cm³ — a fraction of an hour rather than most of an evening.`,
-    'Push each pair together: the mitre should close, and you should feel it click.',
+    ...(scope === 'clip' ? [] : ['Push each pair together: the mitre should close, and you should feel it click.']),
   )
   if (clip) {
     notes.push(
