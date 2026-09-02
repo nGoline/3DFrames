@@ -152,6 +152,7 @@ for (const { id: shape } of FRAME_SHAPES) {
 import { readFileSync } from 'node:fs'
 import opentype from 'opentype.js'
 import { buildFrame } from '../src/core/frame.ts'
+import { buildCoupon } from '../src/core/coupon.ts'
 import { DEFAULT_CONFIG, PRINTERS, SIZE_PRESETS } from '../src/core/presets.ts'
 import { configFrom, decodeDesign, designOf, encodeDesign, reviveDesign } from '../src/core/design.ts'
 import { ARTWORK_CLEARANCE_MM, holdsArtwork, sightOf, sightSize } from '../src/core/sizing.ts'
@@ -664,17 +665,30 @@ console.log('')
       continue
     }
     check(`${what} joint has flexing arms`, j.snaps)
+
+    // Where the shoulder engages decides whether the seam closes. The first
+    // printed frame latched 1.68 mm apart, which is a joint that holds itself
+    // open.
+    const ramp = Math.min(1.5, j.size.length * 0.2)
+    const crest = Math.max(ramp + 0.5, j.size.length - Math.min(3, j.size.length * 0.35))
+    const relief = crest - 0.15
+    check(`${what} latches with the seam shut`, crest - relief <= 0.2,
+      `catches at a ${(crest - relief).toFixed(2)} mm gap`)
+    check(`${what} barb is at the tip, not partway down`, crest > j.size.length * 0.55,
+      `crest starts ${((crest / j.size.length) * 100).toFixed(0)}% along the tenon`)
     const solidOf = (mesh: { vertProperties: Float32Array; triVerts: Uint32Array }) =>
       Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: mesh.vertProperties, triVerts: mesh.triVerts }))
     const tenon = solidOf(j.tenon)
     const socket = solidOf(j.mortise)
     check(`${what} tenon is not inside out`, tenon.volume() > 0, `${tenon.volume().toFixed(1)} mm³`)
     check(`${what} socket is not inside out`, socket.volume() > 0, `${socket.volume().toFixed(1)} mm³`)
-    // Seated, the barb sits in its relief and the joint is free — that is what
-    // lets the seam close fully rather than standing off on the barb.
+    // Seated, the barb is in its relief and only the ramp behind it is still
+    // lightly loaded. That residue is wanted: a ramp bearing on the throat cams
+    // the tenon further in, so it pulls the seam closed rather than propping it
+    // open. It just has to stay small.
     const seated = tenon.subtract(socket).volume() / tenon.volume()
-    check(`${what} joint is free once seated`, seated < 0.001,
-      `${(seated * 100).toFixed(2)}% of the tenon still fouls`)
+    check(`${what} seats with only the ramp preloaded`, seated < 0.015,
+      `${(seated * 100).toFixed(2)}% of the tenon still bears`)
 
     // Part way in, the barb has to be forced through the socket throat. Only
     // the material still inside the socket's own envelope counts — the rest of
@@ -907,6 +921,59 @@ console.log('')
   // And a revived design still builds.
   const built = await buildFrame({ ...configFrom(round!, DEFAULT_CONFIG.plate) }, deps)
   check('a design loaded from a link still builds', built.parts.length > 0, `${built.parts.length} parts`)
+}
+
+
+// ---------------------------------------------------------------------------
+// The test piece. Its whole job is to be trustworthy: if it prints wrong, the
+// four hours it was meant to save get spent anyway.
+// ---------------------------------------------------------------------------
+{
+  const cfg: FrameConfig = {
+    ...DEFAULT_CONFIG,
+    artwork: { thickness: 4.5 },
+    profile: { ...DEFAULT_CONFIG.profile, rabbetDepth: 8.5, depth: 14 },
+    accessories: { ...DEFAULT_CONFIG.accessories, clips: true },
+  }
+  const coupon = await buildCoupon(cfg, deps)
+  check('the test piece has no warnings', coupon.warnings.length === 0, coupon.warnings.join('; '))
+  check('it covers both joint styles and the clip',
+    ['Snap corner 1', 'Snap corner 2', 'Butterfly corner 1', 'Butterfly corner 2', 'Butterfly key', 'Spring clip']
+      .every((n) => coupon.parts.some((p) => p.name === n)),
+    coupon.parts.map((p) => p.name).join(', '))
+  check('it stays small enough to be worth printing', coupon.volumeCm3 < 30,
+    `${coupon.volumeCm3.toFixed(1)} cm³`)
+
+  for (const part of coupon.parts) {
+    const { vertices, indices } = weldVertices(orientForPrint(part))
+    try {
+      const m = Manifold.ofMesh(new Mesh({ numProp: 3, vertProperties: vertices, triVerts: indices }))
+      check(`test piece: ${part.name} is a solid`, m.status() === 'NoError' && m.volume() > 0,
+        `${m.status()} vol=${m.volume().toFixed(1)}`)
+    } catch (e) {
+      check(`test piece: ${part.name} is a solid`, false, (e as Error).message)
+    }
+    const hull: [number, number][] = []
+    const pos = orientForPrint(part)
+    for (let i = 0; i < pos.length; i += 3) hull.push([pos[i], pos[i + 1]])
+    const rect = minAreaRect(hull)
+    check(`test piece: ${part.name} fits a 180 mm bed`,
+      fitsOnPlate(rect.width, rect.height, 180, 180, true),
+      `${rect.width.toFixed(0)} × ${rect.height.toFixed(0)} mm`)
+  }
+
+  // A snap corner is only a test of the joint if the joint is actually on it.
+  const legs = coupon.parts.filter((p) => p.name.startsWith('Snap corner'))
+  const volumes = legs.map((p) => Math.abs(volumeOf(p.positions)))
+  check('one snap leg carries the tenon and the other the socket',
+    Math.abs(volumes[0] - volumes[1]) > 100,
+    `${volumes.map((v) => v.toFixed(0)).join(' vs ')} mm³`)
+
+  // And the parts must not be stacked on top of each other in the 3MF.
+  const files = unzipSync(encode3mf(coupon.parts, 'Test piece', cfg.plate))
+  const items = [...strFromU8(files['3D/3dmodel.model']).matchAll(/<item [^>]*transform="([^"]*)"/g)]
+  check('the test piece 3MF is arranged, not stacked', items.length === coupon.parts.length,
+    `${items.length} placed of ${coupon.parts.length}`)
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed')

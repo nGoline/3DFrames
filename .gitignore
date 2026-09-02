@@ -15,3 +15,8 @@ tsconfig.tsbuildinfo
 *.webp
 *.bmp
 *.tiff
+
+# Generated geometry. The app makes these on demand; they are output, not source.
+*.3mf
+*.stl
+*.zip

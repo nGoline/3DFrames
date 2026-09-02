@@ -22,6 +22,15 @@ const MAX_LENGTH = 26
 const MAX_HEIGHT = 9
 /** Preferred length-to-width ratio. */
 const ASPECT = 1.7
+/**
+ * Gap at which the barb's shoulder engages, in mm.
+ *
+ * This is the whole point of where the barb sits. Put it partway down the tenon
+ * and the shoulder catches while the mitre is still open — the joint latches,
+ * but latches held apart. At the tip, with the socket's relief at its far end,
+ * it can only engage once the seam is shut.
+ */
+const LATCH_MM = 0.15
 /** Thinnest a snap arm may be and still print reliably. */
 const MIN_ARM = 0.9
 /** Thickest an arm may be and still bend by hand. */
@@ -190,11 +199,13 @@ function snapTenon(
   ]
   const mSocket = basisTransform(p.up, p.n, p.dir, socketOrigin)
 
-  const throat = length * 0.45
+  // The socket's step sits just short of where the barb's crest comes to rest,
+  // so the shoulder engages only once the seam is closed.
+  const relief = crestStart(length, Math.min(1.5, length * 0.2)) - LATCH_MM
   return {
-    tenon: transformMesh(extrudePolygon(flip(tenonProfile(length, height / 2, barb, slot, throat)), width), m),
+    tenon: transformMesh(extrudePolygon(flip(tenonProfile(length, height / 2, barb, slot)), width), m),
     mortise: transformMesh(
-      extrudePolygon(flip(socketProfile(socketLength, height / 2 + tol, barb, throat - tol)), socketWidth),
+      extrudePolygon(flip(socketProfile(socketLength, height / 2 + tol, barb, relief)), socketWidth),
       mSocket,
     ),
     recess: null,
@@ -207,21 +218,22 @@ function snapTenon(
 /**
  * Outline of the tenon in (along-the-joint, height), extruded along the mitre.
  *
- * Reading from the root: a plain shank, a ramp out to the barb, the barb itself,
- * then a chamfered tip that starts the squeeze. The slot up the middle is open
- * at the tip, which is what lets the two arms close.
+ * Reading from the root: a plain shank, a ramp out to the barb near the tip,
+ * the barb itself, then a chamfer that starts the squeeze. The slot up the
+ * middle is open at the tip, which is what lets the two arms close.
  */
-function tenonProfile(length: number, half: number, barb: number, slot: number, throat: number): Vec2[] {
-  const ramp = Math.min(1.5, length * 0.18)
+function tenonProfile(length: number, half: number, barb: number, slot: number): Vec2[] {
+  const ramp = Math.min(1.5, length * 0.2)
   const chamfer = Math.min(0.8, barb + 0.3)
   const out = half + barb
   const s = slot / 2
-  const slotStart = Math.min(throat * 0.6, length * 0.25)
+  const crest = crestStart(length, ramp)
+  const slotStart = Math.min(crest * 0.5, length * 0.25)
 
   const pts: Vec2[] = [
     [0, -half],
-    [throat, -half],
-    [throat + ramp, -out],
+    [crest - ramp, -half],
+    [crest, -out],
     [length - chamfer, -out],
     [length, -out + chamfer],
   ]
@@ -231,24 +243,35 @@ function tenonProfile(length: number, half: number, barb: number, slot: number, 
   pts.push(
     [length, out - chamfer],
     [length - chamfer, out],
-    [throat + ramp, out],
-    [throat, half],
+    [crest, out],
+    [crest - ramp, half],
     [0, half],
   )
   return pts
 }
 
-/** The socket: a throat the barb has to be forced through, then a relief. */
-function socketProfile(length: number, half: number, barb: number, throat: number): Vec2[] {
+/** Where the barb's crest begins, measured from the tenon's root. */
+function crestStart(length: number, ramp: number): number {
+  const barbLength = Math.min(3, length * 0.35)
+  return Math.max(ramp + 0.5, length - barbLength)
+}
+
+/**
+ * The socket: a throat the barb has to be forced through for almost its whole
+ * depth, opening into a relief only at the far end. The step between the two is
+ * what the barb's shoulder bears on, and it sits `LATCH_MM` short of where the
+ * crest lands, so it cannot engage until the mitre is closed.
+ */
+function socketProfile(length: number, half: number, barb: number, relief: number): Vec2[] {
   const out = half + barb
   return [
     [0, -half],
-    [throat, -half],
-    [throat, -out],
+    [relief, -half],
+    [relief, -out],
     [length, -out],
     [length, out],
-    [throat, out],
-    [throat, half],
+    [relief, out],
+    [relief, half],
     [0, half],
   ]
 }
