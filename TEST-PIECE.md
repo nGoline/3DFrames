@@ -29,6 +29,11 @@ One of the snap legs carries the clip slot, so the clip has somewhere to go.
 
 ## Printing
 
+**Check spiral vase mode is off first.** This file carries geometry and nothing
+else — no print settings — so it is sliced with whatever profile your slicer
+currently has loaded. If you have been calibrating, that profile may well still
+be in vase mode, and every part will come out as a single hollow wall.
+
 Print exactly as arranged — the legs are already lying on their outer faces,
 which is what keeps the rabbet from being an overhang. No supports. 0.2 mm
 layers, 3 perimeters, 15% infill. Give it 4 perimeters if you want the joint to
