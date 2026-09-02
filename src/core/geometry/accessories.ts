@@ -261,6 +261,8 @@ export const clipFitFor = (tolerance: number) => Math.min(0.2, Math.max(0.04, to
  * shorter than the slot and would otherwise stop before the taper closed on it.
  */
 const CLIP_GRIP_MM = 0.06
+/** Slack on the quoted minimum rabbet, so `clipFit` is inside its guard. */
+const PLACEMENT_EPS_MM = 0.01
 /** How far short of the slot's back the tang stops. */
 const TANG_BACKOFF_MM = 0.8
 /**
@@ -339,7 +341,11 @@ export function minimumRabbetDepth(
   //   X ≥ [floor + k·(squeeze − floor − thickness) + h + headroom] / (1 − k)
   const x =
     (FLOOR_MM + k * (probe.squeeze - FLOOR_MM - probe.thickness) + h + HEADROOM_MM) / (1 - k)
-  return artwork + Math.max(x, probe.squeeze + 1)
+  // The solve lands exactly on `clipFit`'s guard, where floating point decides
+  // whether the clip places at all. Round the answer up off the boundary: this
+  // number is quoted to the user as a minimum, and a minimum that yields no
+  // clips is worse than one a hundredth of a millimetre deeper.
+  return artwork + Math.max(x, probe.squeeze + 1) + PLACEMENT_EPS_MM
 }
 
 const slotDepthFor = (profile: ProfileParams): number | null => {

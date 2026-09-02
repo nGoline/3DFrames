@@ -882,6 +882,35 @@ console.log('')
   const tooShallow = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: needed - 0.4 })
   check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5, DEFAULT_CONFIG.joint.tolerance, 200, materialById(DEFAULT_CONFIG.material)) === null,
     `a ${(needed - 0.4).toFixed(1)} mm rabbet was accepted when ${needed.toFixed(1)} mm was claimed`)
+
+  // ...and usable as quoted. It used to land exactly on `clipFit`'s guard, so
+  // the number the UI showed as a minimum produced a frame with no clips.
+  for (const style of ['folded', 'straight'] as const) {
+    for (const mid of ['pla', 'petg']) {
+      const material = materialById(mid)
+      const at = minimumRabbetDepth(params, 3.4, DEFAULT_CONFIG.joint.tolerance, 200, material, style)
+      const exact = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: at + 2, rabbetDepth: at })
+      check(`${mid}/${style}: a clip fits at exactly the stated minimum`,
+        clipFit(exact, 3.4, DEFAULT_CONFIG.joint.tolerance, 200, material, style) !== null,
+        `${at.toFixed(3)} mm was quoted and refused`)
+    }
+  }
+
+  // The slot's slack is not just a matter of feel. The tang's tip wedges, so the
+  // clip pivots about it and the mouth's clearance sets how far it turns; that
+  // rotation moves the leaf tip bodily, and every millimetre of it is a
+  // millimetre the spring does not bend. A loose pocket is a weak clip.
+  for (const style of ['folded', 'straight'] as const) {
+    const material = materialById('petg')
+    const at = minimumRabbetDepth(params, 3.4, DEFAULT_CONFIG.joint.tolerance, 200, material, style)
+    const prof = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: at + 2, rabbetDepth: at })
+    const fit = clipFit(prof, 3.4, DEFAULT_CONFIG.joint.tolerance, 200, material, style)!
+    const rock = clipFitFor(DEFAULT_CONFIG.joint.tolerance) / (fit.depth - 0.8)
+    const lost = fit.span * rock
+    check(`${style}: rocking in the slot costs under a sixth of the travel`,
+      lost / fit.spring.squeeze < 1 / 6,
+      `${lost.toFixed(2)} of ${fit.spring.squeeze.toFixed(2)} mm lost, leaving ${(fit.spring.force * (1 - lost / fit.spring.squeeze)).toFixed(2)} of ${fit.spring.force.toFixed(2)} N`)
+  }
 }
 
 
