@@ -492,8 +492,7 @@ console.log('')
 
   // A spring clip is only useful if it plugs into its slot and reaches past the
   // rabbet onto the artwork.
-  const CLIP_SLOT_WIDTH = 9
-  const fit = clipFit(p, cfg.artwork.thickness)!
+  const fit = clipFit(p, cfg.artwork.thickness, cfg.joint.tolerance)!
   check('spring clip slots are proportioned for this moulding', !!fit)
   check('slot leaves a floor above the back face', fit.z0 - fit.depth * fit.tilt >= 0.5,
     `${(fit.z0 - fit.depth * fit.tilt).toFixed(2)} mm`)
@@ -514,24 +513,33 @@ console.log('')
 
   // Measured lying flat, since installed the clip is rotated into its slot and
   // its world-axis extents no longer mean length or thickness.
-  // The slot is a wedge: free at the mouth so the tang starts, closing to a
-  // real interference where the tip rests. A parallel slot holds nothing, which
-  // is how the clips fell out of the first printed frame.
+  // The slot slides for most of its depth and wedges only at the end. Tapering
+  // the whole way meant it bound a third of the way in and, on a machine
+  // running tight, stopped halfway — costing the leaf most of its travel and so
+  // most of its force.
   {
-    const CLIP_FIT = 0.15
-    const CLIP_GRIP = 0.06
+    const CLIP_GRIP = 0.03
     const tang = fit.depth - 0.8
-    const taper = ((fit.height - (fit.thickness - 2 * CLIP_GRIP)) * fit.depth) / tang
-    const heightAt = (x: number) => fit.height - taper * (x / fit.depth)
-    check('the clip slot is open at its mouth', heightAt(0) - fit.thickness > 0.1,
-      `${((heightAt(0) - fit.thickness) / 2).toFixed(3)} mm per face`)
-    check('and grips where the tang tip rests', fit.thickness - heightAt(tang) >= 0.1,
+    const wedgeAt = Math.max(fit.depth * 0.3, tang - 2)
+    const taper = ((fit.height - (fit.thickness - 2 * CLIP_GRIP)) * (fit.depth - wedgeAt)) / (tang - wedgeAt)
+    const heightAt = (x: number) => (x <= wedgeAt ? fit.height : fit.height - (taper * (x - wedgeAt)) / (fit.depth - wedgeAt))
+
+    check('the clip slides most of the way in', wedgeAt / tang > 0.5,
+      `parallel for ${wedgeAt.toFixed(1)} of ${tang.toFixed(1)} mm`)
+    // A machine printing 0.15 mm oversized still has to get the tang past the
+    // parallel section, or it will stop short and lose its travel.
+    check('and still slides with a tight-running printer',
+      (heightAt(wedgeAt) - (fit.thickness + 0.3)) / 2 > 0,
+      `${((heightAt(wedgeAt) - (fit.thickness + 0.3)) / 2).toFixed(3)} mm to spare per face`)
+    check('then grips where the tang tip rests', fit.thickness - heightAt(tang) >= 0.04,
       `${((fit.thickness - heightAt(tang)) / 2).toFixed(3)} mm interference per face`)
-    check('the wedge is gradual enough to push in', taper / fit.depth < 0.2,
-      `closes ${taper.toFixed(2)} mm over ${fit.depth} mm`)
-    check('the tang is a close fit sideways', (CLIP_SLOT_WIDTH - (CLIP_SLOT_WIDTH - 2 * CLIP_FIT)) / 2 <= 0.16,
-      `${CLIP_FIT.toFixed(2)} mm per side`)
   }
+
+  // A clip that fits but barely presses is no use; this is what was reported.
+  check('the leaf presses hard enough to hold artwork', fit.spring.force >= 1.5,
+    `${fit.spring.force.toFixed(2)} N per clip, ${(fit.spring.force * 4).toFixed(1)} N over four`)
+  check('and keeps enough travel to tolerate a mis-measured stack',
+    fit.spring.squeeze >= 2, `${fit.spring.squeeze.toFixed(2)} mm`)
 
   for (const c of named('Spring clip')) {
     const pos = orientForPrint(c)
@@ -796,14 +804,14 @@ console.log('')
 {
   for (const thickness of [0.3, 1, 2, 3, 4.5, 6, 10]) {
     const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, rabbetDepth: 6 })
-    const needed = minimumRabbetDepth(probe, thickness)
+    const needed = minimumRabbetDepth(probe, thickness, DEFAULT_CONFIG.joint.tolerance)
     const rabbetDepth = Math.ceil(needed * 2) / 2
     const params = normaliseParams({
       ...DEFAULT_CONFIG.profile,
       depth: rabbetDepth + 2,
       rabbetDepth,
     })
-    const fit = clipFit(params, thickness)
+    const fit = clipFit(params, thickness, DEFAULT_CONFIG.joint.tolerance)
     if (!fit) {
       check(`${thickness} mm artwork: a clip fits`, false, `no fit at ${rabbetDepth} mm rabbet`)
       continue
@@ -822,9 +830,9 @@ console.log('')
 
   // And the stated minimum has to be honest: one notch under it must not fit.
   const params = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: 6 })
-  const needed = minimumRabbetDepth(params, 4.5)
+  const needed = minimumRabbetDepth(params, 4.5, DEFAULT_CONFIG.joint.tolerance)
   const tooShallow = normaliseParams({ ...DEFAULT_CONFIG.profile, depth: 30, rabbetDepth: needed - 0.4 })
-  check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5) === null,
+  check('the stated minimum rabbet is the real minimum', clipFit(tooShallow, 4.5, DEFAULT_CONFIG.joint.tolerance) === null,
     `a ${(needed - 0.4).toFixed(1)} mm rabbet was accepted when ${needed.toFixed(1)} mm was claimed`)
 }
 
@@ -929,10 +937,15 @@ console.log('')
 // four hours it was meant to save get spent anyway.
 // ---------------------------------------------------------------------------
 {
+  // Derive the rabbet rather than fixing it, so this does not quietly stop
+  // testing the clip the moment the leaf changes size.
+  const thickness = 4.5
+  const rabbetDepth =
+    Math.ceil(minimumRabbetDepth(normaliseParams(DEFAULT_CONFIG.profile), thickness, DEFAULT_CONFIG.joint.tolerance) * 2) / 2
   const cfg: FrameConfig = {
     ...DEFAULT_CONFIG,
-    artwork: { thickness: 4.5 },
-    profile: { ...DEFAULT_CONFIG.profile, rabbetDepth: 8.5, depth: 14 },
+    artwork: { thickness },
+    profile: { ...DEFAULT_CONFIG.profile, rabbetDepth, depth: rabbetDepth + 2 },
     accessories: { ...DEFAULT_CONFIG.accessories, clips: true },
   }
   const coupon = await buildCoupon(cfg, deps)

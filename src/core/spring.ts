@@ -23,8 +23,12 @@ const E_PLA = 3000
  * being deflected repeatedly rather than once.
  */
 const STRESS_LIMIT = 18
-/** Force each clip should press with, in newtons. */
-const TARGET_FORCE = 1.2
+/**
+ * Force each clip should press with, in newtons. Set above what the leaf can
+ * reach, so the geometry runs against the stress limit rather than against this
+ * — a clip that presses too gently is the failure that gets reported.
+ */
+const TARGET_FORCE = 4
 /**
  * How much longer the S-curve makes the leaf than its straight span. Bending
  * goes as the cube of length, so the S is what makes a clip this short flexible

@@ -33,7 +33,7 @@ const preset = arg('preset', 'classic') as ProfilePreset
 
 // Deepen the rabbet to suit the artwork, exactly as the app does.
 const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, width })
-const rabbetDepth = Math.ceil(minimumRabbetDepth(probe, artwork) * 2) / 2
+const rabbetDepth = Math.ceil(minimumRabbetDepth(probe, artwork, DEFAULT_CONFIG.joint.tolerance) * 2) / 2
 const config: FrameConfig = {
   ...DEFAULT_CONFIG,
   profilePreset: preset,

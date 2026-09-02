@@ -31,6 +31,8 @@ const ASPECT = 1.7
  * it can only engage once the seam is shut.
  */
 const LATCH_MM = 0.15
+/** Extra clearance a dropped-in butterfly gets over a pressed-in snap. */
+const KEY_SLIDE_MM = 0.08
 /** Thinnest a snap arm may be and still print reliably. */
 const MIN_ARM = 0.9
 /** Thickest an arm may be and still bend by hand. */
@@ -300,8 +302,10 @@ function butterfly(p: Placement & { zLo: number; zHi: number }): SeamJoint | nul
   width = Math.min(MAX_WIDTH, aSpan - 2 * tol - (drift * (length + LEAD_MM)) / 2)
   if (width < MIN_WIDTH || length < MIN_LENGTH) return null
 
-  const recessWidth = width + 2 * tol
-  const recessLength = length + LEAD_MM
+  // A dropped-in key wants clearance, not the interference a snap wants, so it
+  // gets a little more than the shared tolerance.
+  const recessWidth = width + 2 * (tol + KEY_SLIDE_MM)
+  const recessLength = length + LEAD_MM + KEY_SLIDE_MM
   const swept = recessWidth + (drift * recessLength) / 2
   const aCentre = aLo + (aSpan - swept) / 2 + recessWidth / 2
 

@@ -58,7 +58,7 @@ export async function buildCoupon(config: FrameConfig, deps: BuildDeps): Promise
   ]
 
   const artwork = Math.max(0, config.artwork.thickness)
-  const clip = config.accessories.clips ? clipFit(params, artwork) : null
+  const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance) : null
 
   for (const [style, offset] of [
     ['snap', 0],

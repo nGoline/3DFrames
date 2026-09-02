@@ -103,7 +103,7 @@ export const useFrameStore = create<FrameStore>((set, get) => ({
   setArtwork: (thickness) => {
     const config = get().config
     const profile = { ...config.profile, rabbetDepth: config.profile.rabbetDepth }
-    const needed = minimumRabbetDepth(normaliseParams(profile), thickness)
+    const needed = minimumRabbetDepth(normaliseParams(profile), thickness, config.joint.tolerance)
     const rabbetDepth = Math.max(profile.rabbetDepth, Math.ceil(needed * 2) / 2)
     // The moulding has to stay thick enough to have that rabbet cut into it.
     const depth = Math.max(profile.depth, Math.ceil((rabbetDepth + 1.5) * 2) / 2)

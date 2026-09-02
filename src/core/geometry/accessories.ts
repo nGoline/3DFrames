@@ -239,8 +239,12 @@ const CLIP_SLOT_W = 9
 const FLOOR_MM = 0.8
 /** Material kept between the top of the slot and the back of the artwork. */
 const HEADROOM_MM = 0.3
-/** Clearance at the mouth of the slot, per face, so the tang starts easily. */
-const CLIP_FIT_MM = 0.15
+/**
+ * Clearance along most of the slot, per face. Taken from the joint clearance so
+ * one control covers every printed fit, because how tight a machine runs is a
+ * property of the machine and not of any one feature.
+ */
+const clipFitFor = (tolerance: number) => Math.max(0.12, tolerance)
 /**
  * Interference per face where the tang's tip comes to rest. The slot narrows
  * over its depth so the tang wedges as it goes home instead of rattling in a
@@ -250,14 +254,24 @@ const CLIP_FIT_MM = 0.15
  * Measured at the tip rather than at the back of the slot, because the tang is
  * shorter than the slot and would otherwise stop before the taper closed on it.
  */
-const CLIP_GRIP_MM = 0.06
+const CLIP_GRIP_MM = 0.03
 /** How far short of the slot's back the tang stops. */
 const TANG_BACKOFF_MM = 0.8
+/**
+ * Length of the wedge at the far end of the slot.
+ *
+ * The rest of the slot is parallel and generously clear. Tapering the whole
+ * depth meant the tang began binding a third of the way in, and on a machine
+ * running even slightly tight it stopped halfway and never seated — which cost
+ * the leaf most of its travel, and so most of its force.
+ */
+const GRIP_ZONE_MM = 2
 
-/** Slot height at its mouth, for a leaf of the given thickness. */
-const slotHeight = (thickness: number) => thickness + 2 * CLIP_FIT_MM
+/** Slot height along its parallel section, for a leaf of the given thickness. */
+const slotHeight = (thickness: number, tolerance: number) =>
+  thickness + 2 * clipFitFor(tolerance)
 /** How far the leaf reaches past the rabbet wall, over the artwork. */
-const CLIP_REACH_MM = 12
+const CLIP_REACH_MM = 14
 
 export interface ClipFit {
   thickness: number
@@ -272,6 +286,8 @@ export interface ClipFit {
   span: number
   /** The spring the leaf actually is. */
   spring: SpringSpec
+  /** The clearance this fit was worked out at. */
+  tolerance: number
 }
 
 /**
@@ -281,11 +297,15 @@ export interface ClipFit {
  * Solved from the placement below: the slot has to clear the floor, clear the
  * back of the artwork, and still let the leaf rest a full squeeze proud of it.
  */
-export function minimumRabbetDepth(profile: ProfileParams, artwork: number): number {
+export function minimumRabbetDepth(
+  profile: ProfileParams,
+  artwork: number,
+  tolerance = 0.18,
+): number {
   const probe = leafFor(profile)
   const slotDepth = slotDepthFor(profile)
   if (slotDepth === null) return artwork + 4
-  const h = slotHeight(probe.thickness)
+  const h = slotHeight(probe.thickness, tolerance)
   const k = slotDepth / (slotDepth + probe.span)
   // Substituting the tilt below into `floor + slotDepth·tanθ + h + headroom ≤
   // rabbet − artwork` and solving for the rabbet:
@@ -306,8 +326,8 @@ const slotDepthFor = (profile: ProfileParams): number | null => {
  * makes the answer depend on itself. Thickness is set by what prints reliably —
  * about three perimeters — and the span by how far it has to reach.
  */
-const LEAF_THICKNESS_MM = 1.4
-const LEAF_WIDTH_MM = 4.4
+const LEAF_THICKNESS_MM = 1.8
+const LEAF_WIDTH_MM = 7.5
 
 const leafFor = (profile: ProfileParams) =>
   springFor({
@@ -330,12 +350,16 @@ const leafFor = (profile: ProfileParams) =>
  * the behaviour that was missing: the number you type for the artwork is what
  * the clip is positioned around.
  */
-export function clipFit(profile: ProfileParams, artwork: number): ClipFit | null {
+export function clipFit(
+  profile: ProfileParams,
+  artwork: number,
+  tolerance = 0.18,
+): ClipFit | null {
   const depth = slotDepthFor(profile)
   if (depth === null) return null
 
   const spring = leafFor(profile)
-  const height = slotHeight(spring.thickness)
+  const height = slotHeight(spring.thickness, tolerance)
 
   const tilt = (profile.rabbetDepth - artwork + spring.squeeze - FLOOR_MM - spring.thickness) /
     (depth + spring.span)
@@ -345,7 +369,7 @@ export function clipFit(profile: ProfileParams, artwork: number): ClipFit | null
   // The tang must not foul the back of the artwork.
   if (z0 + height + HEADROOM_MM > profile.rabbetDepth - artwork) return null
 
-  return { thickness: spring.thickness, depth, height, z0, tilt, span: spring.span, spring }
+  return { thickness: spring.thickness, depth, height, z0, tilt, span: spring.span, spring, tolerance }
 }
 
 /**
@@ -359,10 +383,12 @@ export function clipSlots(ctx: AccessoryContext, fit: ClipFit, where: number[]):
   // here was double-counting it and left the tang rattling.
   const h = fit.height
   const z0 = fit.z0
-  // Close the slot up so it reaches its interference exactly where the tang's
-  // tip lands, then carry that gradient on to the back of the slot.
+  // Parallel for most of the depth so the tang slides in even on a machine that
+  // runs tight, then a short wedge that closes onto it right at the end.
   const tang = fit.depth - TANG_BACKOFF_MM
-  const taper = ((h - (fit.thickness - 2 * CLIP_GRIP_MM)) * fit.depth) / tang
+  const wedgeAt = Math.max(fit.depth * 0.3, tang - GRIP_ZONE_MM)
+  const taper =
+    ((h - (fit.thickness - 2 * CLIP_GRIP_MM)) * (fit.depth - wedgeAt)) / (tang - wedgeAt)
 
   let merged: RawMesh | null = null
   for (const j of where) {
@@ -371,8 +397,10 @@ export function clipSlots(ctx: AccessoryContext, fit: ClipFit, where: number[]):
     // pushed into it points forward and has to be sprung back by the artwork.
     const poly: Vec2[] = [
       [z0, 0],
+      [z0 - wedgeAt * tilt, wedgeAt],
       [z0 - fit.depth * tilt + taper / 2, fit.depth],
       [z0 + h - fit.depth * tilt - taper / 2, fit.depth],
+      [z0 + h - wedgeAt * tilt, wedgeAt],
       [z0 + h, 0],
     ]
     const tangent: [number, number, number] = [-dir[1], dir[0], 0]
@@ -407,9 +435,9 @@ export function buildClip(
   at: number,
 ): { mesh: RawMesh; print: number[] } {
   const tangLength = fit.depth - TANG_BACKOFF_MM
-  const tangWidth = CLIP_SLOT_W - 2 * CLIP_FIT_MM
+  const tangWidth = CLIP_SLOT_W - 2 * clipFitFor(fit.tolerance)
   const armLength = fit.span
-  const armWidth = 4.4
+  const armWidth = LEAF_WIDTH_MM
   const amplitude = 2.6
   const steps = 24
 
@@ -453,7 +481,7 @@ export function buildClip(
 
   const wall = offsetPath(ctx.points, ctx.frames, ctx.profile.rabbetWidth)[at]
   // Centred in the mouth of the slot, which is where it enters.
-  const m = basisTransform(ax, ay, az, [wall[0], wall[1], fit.z0 + CLIP_FIT_MM])
+  const m = basisTransform(ax, ay, az, [wall[0], wall[1], fit.z0 + clipFitFor(fit.tolerance)])
 
   return {
     mesh: transformMesh(extrudePolygon(poly, fit.thickness), m),

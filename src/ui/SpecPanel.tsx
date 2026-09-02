@@ -28,8 +28,8 @@ export function SpecPanel() {
   const presetLabel = PROFILE_PRESETS.find((p) => p.id === config.profilePreset)?.label ?? 'Custom'
   const printer = PRINTERS.find((p) => p.id === config.plate.printer)
   const artwork = Math.max(0, config.artwork.thickness)
-  const clip = config.accessories.clips ? clipFit(params, artwork) : null
-  const minRabbet = minimumRabbetDepth(params, artwork)
+  const clip = config.accessories.clips ? clipFit(params, artwork, config.joint.tolerance) : null
+  const minRabbet = minimumRabbetDepth(params, artwork, config.joint.tolerance)
   const sight = sightOf({ ...config, profile: params })
 
   const toggle = (id: string) => setOpen((current) => (current === id ? null : id))
@@ -295,7 +295,7 @@ export function SpecPanel() {
         />
         <Slider label="Joint clearance" value={config.joint.tolerance} min={0} max={0.5} step={0.02}
           onChange={(tolerance) => store.set({ joint: { ...config.joint, tolerance } })}
-          hint="Per side. 0.15–0.2 mm suits most printers. Raise it if the seams will not close; lower it if they feel loose." />
+          hint="Per side, and it covers every printed fit: the seams, the butterfly key, and the clips in their slots. 0.15–0.2 mm suits most printers. Raise it if things will not go together; lower it if they feel loose." />
         <Chips
           label="Curve quality"
           value={String(config.quality)}
