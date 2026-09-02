@@ -10,7 +10,7 @@ import { buildOpeningPath, miterFrames, pathLengths } from '../src/core/shapes.t
 import { buildProfile, normaliseParams } from '../src/core/profiles.ts'
 import { buildJoint } from '../src/core/geometry/joints.ts'
 import { clipFit } from '../src/core/geometry/accessories.ts'
-import { FACE_PATTERNS } from '../src/core/geometry/facePattern.ts'
+import { FACE_PATTERNS, createDisplacer } from '../src/core/geometry/facePattern.ts'
 import { sweep } from '../src/core/geometry/sweep.ts'
 import { toTriangleSoup, volumeOf } from '../src/core/geometry/mesh.ts'
 import { PROFILE_PRESETS } from '../src/core/profiles.ts'
@@ -117,6 +117,32 @@ for (const { id: shape } of FRAME_SHAPES) {
   }
   check(`all ${checked} profile × proportion × relief combinations are simple and in bounds`,
     broken.length === 0, broken.slice(0, 5).join('; '))
+}
+
+// ---------------------------------------------------------------------------
+// Face patterns. A frame closes on itself, so the height field has to meet
+// itself exactly where it does — and the angle control has to actually turn
+// every pattern, not just the ones that happened to read it.
+// ---------------------------------------------------------------------------
+{
+  for (const perimeter of [400, 914.4, 3048]) {
+    const seams: string[] = []
+    const ignored: string[] = []
+    for (const { id } of FACE_PATTERNS) {
+      if (id === 'none') continue
+      const flat = createDisplacer({ pattern: id, depth: 0.6, scale: 6, angle: 0 }, perimeter)!
+      let worst = 0
+      for (let u = 0.5; u < 24; u += 0.25) worst = Math.max(worst, Math.abs(flat(0, u) - flat(perimeter, u)))
+      if (worst > 1e-6) seams.push(`${id} ${worst.toFixed(4)}`)
+
+      const turned = createDisplacer({ pattern: id, depth: 0.6, scale: 6, angle: 35 }, perimeter)!
+      let moved = 0
+      for (let i = 0; i < 300; i++) moved += Math.abs(flat((i / 300) * perimeter, (i % 17) + 1) - turned((i / 300) * perimeter, (i % 17) + 1))
+      if (moved / 300 < 1e-4) ignored.push(id)
+    }
+    check(`patterns meet themselves round a ${perimeter} mm frame`, seams.length === 0, seams.join(', '))
+    check(`every pattern responds to the angle at ${perimeter} mm`, ignored.length === 0, ignored.join(', '))
+  }
 }
 
 // ---------------------------------------------------------------------------
