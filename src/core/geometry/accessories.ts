@@ -241,16 +241,11 @@ const FLOOR_MM = 0.8
 /** Material kept between the top of the slot and the back of the artwork. */
 const HEADROOM_MM = 0.3
 /**
- * Clearance along most of the slot, per face.
- *
- * Deliberately a fraction of the joint clearance rather than equal to it. A
- * seam has to close, so it wants room; a clip has to stay put, so it wants
- * none. Matching the two put 0.18 mm a side into the slot — a fifth of the
- * leaf's own thickness — and the clip rattled. Tight is the right failure here:
- * a clip that needs a firm push is a nuisance, one that drops out is useless.
- * The joint clearance still moves it, so a machine that runs tight has a lever.
+ * Clearance along most of the slot, per face. Taken from the joint clearance so
+ * one control covers every printed fit, because how tight a machine runs is a
+ * property of the machine and not of any one feature.
  */
-export const clipFitFor = (tolerance: number) => Math.min(0.2, Math.max(0.04, tolerance * 0.35))
+const clipFitFor = (tolerance: number) => Math.max(0.12, tolerance)
 /**
  * Interference per face where the tang's tip comes to rest. The slot narrows
  * over its depth so the tang wedges as it goes home instead of rattling in a
@@ -260,7 +255,7 @@ export const clipFitFor = (tolerance: number) => Math.min(0.2, Math.max(0.04, to
  * Measured at the tip rather than at the back of the slot, because the tang is
  * shorter than the slot and would otherwise stop before the taper closed on it.
  */
-const CLIP_GRIP_MM = 0.06
+const CLIP_GRIP_MM = 0.03
 /** How far short of the slot's back the tang stops. */
 const TANG_BACKOFF_MM = 0.8
 /**

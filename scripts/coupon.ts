@@ -6,7 +6,6 @@
  * clips. Override any of it from the command line, e.g.
  *
  *   npm run coupon -- --artwork 2 --width 24 --preset ogee --material petg
- *   npm run coupon -- --only clip        # just the clip and its slot
  */
 import Module from 'manifold-3d'
 import opentype from 'opentype.js'
@@ -33,7 +32,6 @@ const artwork = Number(arg('artwork', '4.5'))
 const width = Number(arg('width', '18'))
 const preset = arg('preset', 'classic') as ProfilePreset
 const material = arg('material', 'pla')
-const scope = arg('only', 'all') as 'all' | 'clip' | 'joint'
 
 // Deepen the rabbet to suit the artwork, exactly as the app does.
 const probe = normaliseParams({ ...DEFAULT_CONFIG.profile, width })
@@ -59,7 +57,7 @@ const loadFont = (id: string) => {
   return Promise.resolve(opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)))
 }
 
-const result = await buildCoupon(config, { kernel: wasm, loadFont }, scope)
+const result = await buildCoupon(config, { kernel: wasm, loadFont })
 
 writeFileSync('test-piece.3mf', encode3mf(result.parts, '3DFrames test piece', config.plate))
 for (const part of result.parts) {

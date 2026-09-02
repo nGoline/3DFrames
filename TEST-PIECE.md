@@ -9,15 +9,10 @@ whatever you have configured, without generating the whole frame first.
 From the command line, regenerate it with:
 
 ```bash
-npm run coupon                                  # the lot: both joints, a clip
-npm run coupon -- --only clip                   # just the clip and its slot, ~6 cm³
-npm run coupon -- --artwork 3.4 --material petg # your stack, your filament
-npm run coupon -- --preset ogee --width 24      # a different moulding
+npm run coupon                                  # 18 × 14 mm classic, 4.5 mm artwork
+npm run coupon -- --artwork 2 --width 24        # thinner artwork, wider face
+npm run coupon -- --preset ogee                 # a different edge profile
 ```
-
-**Use `--only clip` when you are chasing the clip fit.** It drops both joints
-and the second leg, which is most of the plastic: 6 cm³ against 22. Re-testing
-one thing should not mean reprinting all of it.
 
 It writes `test-piece.3mf` with everything arranged on the bed, plus one STL per
 part if you would rather place them yourself.
