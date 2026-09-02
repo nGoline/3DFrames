@@ -69,6 +69,57 @@ for (const { id: shape } of FRAME_SHAPES) {
 
 
 // ---------------------------------------------------------------------------
+// Every edge profile must be a simple polygon inside its own envelope, at any
+// proportions. A deep rabbet leaves far less material at the front than the
+// thickness suggests, and relief that overruns it folds the outline through
+// itself — which sweeps into a solid that looks like a knot.
+// ---------------------------------------------------------------------------
+{
+  const cross = (o: number[], a: number[], b: number[]) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const crosses = (p1: number[], p2: number[], p3: number[], p4: number[]) => {
+    const d1 = cross(p3, p4, p1), d2 = cross(p3, p4, p2)
+    const d3 = cross(p1, p2, p3), d4 = cross(p1, p2, p4)
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  }
+
+  const shapes: [number, number, number, number][] = [
+    [18, 12, 6, 5],   // the default
+    [6, 4, 2, 2],     // as small as it goes
+    [60, 40, 12, 20], // chunky
+    [9, 25, 3, 20],   // deep and narrow: very little material at the front
+    [80, 45, 20, 30],
+    [10, 6, 4, 3],
+  ]
+  let checked = 0
+  const broken: string[] = []
+  for (const { id } of PROFILE_PRESETS) {
+    for (const [w, d, rw, rd] of shapes) {
+      for (const relief of [0, 0.25, 0.5, 0.75, 1]) {
+        checked++
+        const params = normaliseParams({ width: w, depth: d, rabbetWidth: rw, rabbetDepth: rd, relief })
+        const pts = buildProfile(id, params, 2).map((q) => [q.u, q.v])
+        const outside = pts.some(
+          (q) => q[0] < -1e-6 || q[0] > params.width + 1e-6 || q[1] < -1e-6 || q[1] > params.depth + 1e-6,
+        )
+        let self = 0
+        for (let i = 0; i < pts.length; i++) {
+          for (let j = i + 2; j < pts.length; j++) {
+            if (i === 0 && j === pts.length - 1) continue
+            if (crosses(pts[i], pts[(i + 1) % pts.length], pts[j], pts[(j + 1) % pts.length])) self++
+          }
+        }
+        if (outside || self) {
+          broken.push(`${id} ${w}×${d} rabbet ${rw}×${rd} relief ${relief}${self ? ` (self ×${self})` : ''}${outside ? ' (outside)' : ''}`)
+        }
+      }
+    }
+  }
+  check(`all ${checked} profile × proportion × relief combinations are simple and in bounds`,
+    broken.length === 0, broken.slice(0, 5).join('; '))
+}
+
+// ---------------------------------------------------------------------------
 // Full pipeline: split, joints, text, accessories and the exporters.
 // ---------------------------------------------------------------------------
 import { readFileSync } from 'node:fs'

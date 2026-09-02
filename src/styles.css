@@ -370,6 +370,29 @@ input[type='range']::-moz-range-thumb {
 .section-svg .ghost { stroke: var(--lead-1); stroke-width: 0.5; stroke-dasharray: 3 2; fill: none; }
 .section-svg .note { fill: var(--lead-4); font-family: var(--body); font-size: 6.4px; }
 
+/* --- Colophon ------------------------------------------------------------- */
+
+.colophon {
+  margin: 22px var(--pad) 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--lead-4);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.colophon p { margin: 0; }
+.colophon a { color: var(--lead-6); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.colophon a:hover { color: var(--blue-ink); border-color: var(--blue); }
+
+.colophon-version {
+  margin-top: 2px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+  color: var(--lead-1);
+}
+.colophon-version a { color: var(--lead-1); border-bottom-color: transparent; }
+
 /* --- Stage ---------------------------------------------------------------- */
 
 .stage {

@@ -261,6 +261,21 @@ export function SpecPanel() {
           onChange={(q) => store.set({ quality: Number(q) as 0 | 1 | 2 | 3 })}
         />
       </Row>
+
+      <footer className="colophon">
+        <p>
+          Made with <span aria-label="love">❤️</span> by{' '}
+          <a href="https://github.com/nGoline" target="_blank" rel="noreferrer">nGoline</a> and{' '}
+          <span aria-label="robot">🤖</span> Claude.
+        </p>
+        <p className="colophon-version">
+          <a href="https://github.com/nGoline/3DFrames" target="_blank" rel="noreferrer">
+            v{__APP_VERSION__}
+            {__APP_COMMIT__ === 'dev' ? ' · dev' : ` · ${__APP_COMMIT__}`}
+          </a>
+          {' · '}MIT
+        </p>
+      </footer>
     </aside>
   )
 }

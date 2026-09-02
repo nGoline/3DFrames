@@ -19,7 +19,22 @@ import type { ProfilePoint, ProfileParams, ProfilePreset } from './types.ts'
  * by `buildProfile`, so a new style only has to describe the part you can see.
  */
 
-type FaceBuilder = (p: ProfileParams, segments: number) => ProfilePoint[]
+/**
+ * What a face builder is given. `budget` is how far the decorative face may
+ * drop below the front plane before it would break into the rabbet — presets
+ * scale their relief against it rather than against total thickness, because a
+ * deep rabbet can leave far less material at the front than the thickness
+ * suggests, and a drop past the rabbet ceiling folds the outline through itself.
+ */
+type FaceParams = ProfileParams & { budget: number }
+type FaceBuilder = (p: FaceParams, segments: number) => ProfilePoint[]
+
+/** Material kept at the front of the rabbet, so the face never breaks through. */
+const FRONT_WALL_MM = 1.2
+
+/** How far the face may be cut down from the front plane. */
+export const faceBudget = (p: ProfileParams): number =>
+  Math.max(0.4, Math.min(p.depth * 0.62, p.depth - p.rabbetDepth - FRONT_WALL_MM))
 
 const SEGMENTS_BY_QUALITY = [10, 18, 30, 48]
 
@@ -78,10 +93,10 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
    * Traditional moulding: a raised outer lip, a broad hollow, then a small bead
    * standing proud of the sight edge.
    */
-  classic: ({ width, depth, relief }, seg) => {
+  classic: ({ width, depth, relief, budget }, seg) => {
     const lip = width * 0.18
     const bead = width * 0.14
-    const hollow = depth * 0.3 * relief
+    const hollow = budget * 0.6 * relief
     return [
       { u: width, v: 0 },
       { u: width, v: depth },
@@ -95,8 +110,8 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
   },
 
   /** A continuous S-curve falling from the outer edge to the aperture. */
-  ogee: ({ width, depth, relief }, seg) => {
-    const drop = depth * 0.42 * relief
+  ogee: ({ width, depth, relief, budget }, seg) => {
+    const drop = budget * 0.85 * relief
     const mid = width * 0.5
     return [
       { u: width, v: 0 },
@@ -107,8 +122,8 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
   },
 
   /** A single concave dish scooped across the whole face. */
-  scoop: ({ width, depth, relief }, seg) => {
-    const sag = depth * 0.45 * relief
+  scoop: ({ width, depth, relief, budget }, seg) => {
+    const sag = budget * 0.9 * relief
     return [
       { u: width, v: 0 },
       { u: width, v: depth },
@@ -117,10 +132,10 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
   },
 
   /** A flat face tilted down toward the artwork, the way a mount board sits. */
-  bevel: ({ width, depth, relief }) => [
+  bevel: ({ width, depth, relief, budget }) => [
     { u: width, v: 0 },
     { u: width, v: depth },
-    { u: 0, v: depth - depth * 0.5 * relief },
+    { u: 0, v: depth - budget * relief },
   ],
 
   /** Softened outer arris — kind to fingers and to first-layer adhesion. */
@@ -135,13 +150,13 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
   },
 
   /** Concentric rectangular terraces, a very forgiving shape to print. */
-  step: ({ width, depth, relief }) => {
+  step: ({ width, depth, relief, budget }) => {
     const steps = 3
     const pts: ProfilePoint[] = [
       { u: width, v: 0 },
       { u: width, v: depth },
     ]
-    const totalDrop = depth * 0.5 * relief
+    const totalDrop = budget * relief
     for (let i = 1; i <= steps; i++) {
       const u = width * (1 - i / steps)
       const vTop = depth - (totalDrop * (i - 1)) / steps
@@ -152,19 +167,34 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
     return pts
   },
 
-  /** Architectural crown: tall outer fillet, deep cove, bead at the sight line. */
-  crown: ({ width, depth, relief }, seg) => {
-    const fillet = width * 0.12
-    const bead = width * 0.16
-    const cove = depth * 0.55 * relief
+  /**
+   * Architectural crown: a fillet at the outer edge, a deep concave cove
+   * sweeping down and in, and a small bead standing proud at the sight line.
+   *
+   * The cove is a quarter circle centred level with the front face, which is
+   * what keeps the hollow from ever rising above it, and its radius is bounded
+   * by both the thickness and the run left after the bead — a cove larger than
+   * either would loop back out through the side of the moulding.
+   */
+  crown: ({ width, depth, relief, budget }, seg) => {
+    const fillet = width * 0.1
+    let beadRadius = Math.min(width * 0.075, depth * 0.18)
+    let beadCentre = beadRadius + width * 0.05
+    const maxCove = Math.min(budget, width - fillet - beadCentre - beadRadius - 0.5)
+    const cove = Math.max(0.5, maxCove * (0.35 + 0.65 * relief))
+    // The bead sits on the shelf the cove lands on, so it can be no taller.
+    beadRadius = Math.min(beadRadius, cove * 0.8)
+    beadCentre = beadRadius + width * 0.05
+    const shelf = depth - cove
+
     return [
       { u: width, v: 0 },
       { u: width, v: depth },
       { u: width - fillet, v: depth },
-      ...arc(width - fillet, depth - cove, cove, 90, 0, seg).slice(1),
-      ...sweepCurve(width - fillet + cove, bead, depth - cove, depth - cove * 0.25, -cove * 0.3, seg),
-      ...arc(bead, depth - cove * 0.25, bead * 0.9, -90, 90, Math.max(4, Math.round(seg / 2))).slice(1),
-      { u: 0, v: depth - cove * 0.25 },
+      ...arc(width - fillet - cove, depth, cove, 0, -90, seg).slice(1),
+      { u: beadCentre + beadRadius, v: shelf },
+      ...arc(beadCentre, shelf, beadRadius, 0, 180, Math.max(4, Math.round(seg / 2))).slice(1),
+      { u: 0, v: shelf },
     ]
   },
 
@@ -172,14 +202,15 @@ const FACES: Record<Exclude<ProfilePreset, 'custom'>, FaceBuilder> = {
    * Deep, narrow, and square — a modern gallery box with a recessed reveal
    * around the artwork.
    */
-  gallery: ({ width, depth, relief }) => {
+  gallery: ({ width, depth, relief, budget }) => {
     const reveal = width * 0.3 * relief
+    const floor = depth - Math.min(depth * 0.25, budget)
     return [
       { u: width, v: 0 },
       { u: width, v: depth },
       { u: reveal, v: depth },
-      { u: reveal, v: depth * 0.75 },
-      { u: 0, v: depth * 0.75 },
+      { u: reveal, v: floor },
+      { u: 0, v: floor },
     ]
   },
 }
@@ -209,7 +240,10 @@ export function buildProfile(
 ): ProfilePoint[] {
   const p = normaliseParams(params)
   const seg = segmentsForQuality(quality)
-  const face = (FACES[preset === 'custom' ? 'flat' : preset] ?? FACES.flat)(p, seg)
+  const face = (FACES[preset === 'custom' ? 'flat' : preset] ?? FACES.flat)(
+    { ...p, budget: faceBudget(p) },
+    seg,
+  )
 
   const pts: ProfilePoint[] = [
     { u: 0, v: p.rabbetDepth },
